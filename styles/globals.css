@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  @apply bg-white text-neutral-900 antialiased;
+}
+
+/* Typography and base elements */
+h1, h2, h3, h4, h5, h6 {
+  @apply text-neutral-900 font-semibold tracking-tight;
+}
+
+p {
+  @apply text-neutral-700;
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: none;
+  @apply ring-2 ring-neutral-800 ring-offset-2 ring-offset-white;
+}
+
+/* Cards */
+.card {
+  @apply bg-white border border-neutral-200 rounded-xl shadow-card;
+}
+
+/* Skip link */
+.skip-to-content {
+  position: absolute;
+  left: 0.5rem;
+  top: -40px;
+  background: white;
+  color: black;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgb(228 228 231);
+  border-radius: 0.5rem;
+  transition: top 0.2s ease;
+  z-index: 50;
+}
+.skip-to-content:focus {
+  top: 0.5rem;
+}
+
+/* Tables */
+.table {
+  @apply w-full text-left border-collapse;
+}
+.table th {
+  @apply text-neutral-600 font-medium border-b border-neutral-200 px-3 py-2;
+}
+.table td {
+  @apply border-b border-neutral-200 px-3 py-2 align-top;
+}
+
+/* Scrollbar (WebKit) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 0.5rem; }
+::-webkit-scrollbar-track { background: #f4f4f5; }
