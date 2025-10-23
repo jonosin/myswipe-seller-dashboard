@@ -32,9 +32,11 @@ export default function LoginPage() {
   const onGoogle = async () => {
     setLoading(true); setError(null);
     const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/dashboard` : undefined;
-    const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
+    const { data, error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo, skipBrowserRedirect: true } });
     setLoading(false);
-    if (error) setError(error.message);
+    if (error) { setError(error.message); return; }
+    if (data?.url) { window.location.assign(data.url); return; }
+    setError("Unable to start Google sign-in");
   };
 
   return (
