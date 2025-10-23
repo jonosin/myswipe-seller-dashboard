@@ -39,6 +39,11 @@ export async function getKycStatus(): Promise<{ status: KycStatus }>{
     const ok = !!row.charges_enabled && !!row.payouts_enabled;
     return { status: ok ? "verified" : "in_progress" };
   } catch {
+    // Fallback: if seller has a connected account, treat as in_progress (Standard accounts)
+    try {
+      const prof = await apiFetch(`/v1/sellers/me`);
+      if (prof?.stripe_account_id) return { status: "in_progress" };
+    } catch {}
     return { status: "not_started" };
   }
 }

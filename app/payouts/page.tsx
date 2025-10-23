@@ -43,8 +43,8 @@ export default function PayoutsPage() {
             </>
           ) : error ? (
             <>
-              <div className="text-sm text-red-700">{error}</div>
-              <div className="text-xs text-neutral-600 mt-1">If Stripe is not configured on the backend, this summary may be unavailable.</div>
+              <div className="text-sm text-neutral-700">Summary unavailable</div>
+              <div className="text-xs text-neutral-600 mt-1">Your payouts are managed in Stripe. Use the action on the right to continue onboarding or manage your account.</div>
             </>
           ) : payout ? (
             <>
