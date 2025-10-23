@@ -16,15 +16,17 @@ export default function PayoutOnboarding() {
 
   useEffect(() => {
     let mounted = true;
-    // load initial status and whether a Stripe account is connected
-    Promise.allSettled([getKycStatus(), getSellerProfile()]).then((res) => {
+    // ensure seller exists, then load initial status and profile
+    (async () => {
+      try { await ensureSeller("Seller"); } catch {}
+      const res = await Promise.allSettled([getKycStatus(), getSellerProfile()]);
       if (!mounted) return;
       const s0 = res[0].status === "fulfilled" ? res[0].value.status : "not_started";
       const p0 = res[1].status === "fulfilled" ? res[1].value : null;
       setStatus(s0 as KycStatus);
       setConnected(!!p0?.stripe_account_id);
       setLoading(false);
-    });
+    })();
     return () => { mounted = false; };
   }, []);
 
