@@ -2,7 +2,10 @@
 
 import { supabase } from "@/lib/supabase";
 
-const BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:3000") as string;
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL as string;
+if (!BASE) {
+  throw new Error("Missing NEXT_PUBLIC_API_BASE_URL");
+}
 const ADMIN_SECRET = (process.env.NEXT_PUBLIC_ADMIN_SECRET || (process.env as any).ADMIN_SECRET) as string | undefined;
 
 export async function apiFetch(path: string, init?: RequestInit & { json?: any }) {
