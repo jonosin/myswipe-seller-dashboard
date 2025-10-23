@@ -9,7 +9,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,14 +19,6 @@ export default function LoginPage() {
     router.replace("/dashboard");
   };
 
-  const onMagic = async () => {
-    setLoading(true); setError(null); setNotice(null);
-    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
-    setLoading(false);
-    if (error) { setError(error.message); return; }
-    setNotice("Check your email for the magic link.");
-  };
 
   const onGoogle = async () => {
     setLoading(true); setError(null);
@@ -53,10 +44,8 @@ export default function LoginPage() {
           <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-md border border-neutral-300 px-3 py-2" />
         </div>
         {error && <div className="text-sm text-red-600">{error}</div>}
-        {notice && <div className="text-sm text-green-700">{notice}</div>}
         <div className="flex flex-col gap-2">
           <button type="submit" disabled={loading} className="w-full rounded-md border border-neutral-900 bg-neutral-900 text-white px-4 py-2">{loading ? "Signing in…" : "Sign in"}</button>
-          <button type="button" disabled={loading || !email} onClick={onMagic} className="w-full rounded-md border border-neutral-300 px-4 py-2">Send magic link</button>
           <button type="button" disabled={loading} onClick={onGoogle} className="w-full rounded-md border border-neutral-300 px-4 py-2">Continue with Google</button>
         </div>
       </form>
