@@ -22,7 +22,7 @@ export default function LoginPage() {
 
   const onMagic = async () => {
     setLoading(true); setError(null); setNotice(null);
-    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/dashboard` : undefined;
+    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
     const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
     setLoading(false);
     if (error) { setError(error.message); return; }
@@ -31,7 +31,7 @@ export default function LoginPage() {
 
   const onGoogle = async () => {
     setLoading(true); setError(null);
-    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/dashboard` : undefined;
+    const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/auth/callback` : undefined;
     const { data, error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo, skipBrowserRedirect: true } });
     setLoading(false);
     if (error) { setError(error.message); return; }

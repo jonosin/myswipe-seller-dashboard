@@ -41,8 +41,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!ready) return;
-    if (pathname !== "/login" && !hasSession) router.replace("/login");
-    if (pathname === "/login" && hasSession) router.replace("/dashboard");
+    const isAuthRoute = pathname === "/login" || pathname === "/auth/callback";
+    if (!isAuthRoute && !hasSession) router.replace("/login");
+    if (isAuthRoute && hasSession) router.replace("/dashboard");
   }, [ready, hasSession, pathname, router]);
 
   if (!ready) return <div className="p-6">Loading…</div>;
