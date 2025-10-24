@@ -1,6 +1,7 @@
 import { products as legacy } from "@/data/products";
 import { apiFetch } from "@/lib/api/client";
 import { toMinor } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
 import type {
   ListProductsParams,
   ListProductsResponse,
@@ -11,6 +12,10 @@ import type {
   ProductUpdate,
   Variant,
 } from "@/types/product";
+
+const SUPA = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
+const publicImage = (p: string | undefined | null) => (p ? `${SUPA}/storage/v1/object/public/product-images/${p}` : undefined);
+const publicVideo = (p: string | undefined | null) => (p ? `${SUPA}/storage/v1/object/public/product-videos/${p}` : undefined);
 
 // In-memory mock store in DTO shape
 let store: Product[] = legacy.map((p, idx): Product => {
@@ -71,8 +76,7 @@ function summarize(p: Product): ProductSummary {
 
 export async function listProducts(params: ListProductsParams = {}): Promise<ListProductsResponse> {
   const { page = 1, page_size = 20 } = params;
-  const SUPA = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-  const publicImage = (p: string | undefined | null) => (p ? `${SUPA}/storage/v1/object/public/product-images/${p}` : undefined);
+  
 
   const ensurePage = async (targetPage: number, limit: number) => {
     let cursor: string | null = null;
@@ -121,8 +125,8 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
 
 export async function getProduct(id: string): Promise<Product> {
   const dto = await apiFetch(`/v1/products/${id}`);
-  const images = (dto.images || []).map((m: any) => ({ id: m.id, url: m.url, position: m.position, alt: m.alt_text }));
-  const videos = (dto.videos || []).map((v: any) => ({ id: v.id, url: v.url, position: v.position, alt: undefined, type: "video", thumbnailUrl: v.thumbnail || undefined }));
+  const images = (dto.images || []).map((m: any) => ({ id: m.id, url: publicImage(m.url), position: m.position, alt: m.alt_text }));
+  const videos = (dto.videos || []).map((v: any) => ({ id: v.id, url: publicVideo(v.url), position: v.position, alt: undefined, type: "video", thumbnailUrl: publicImage(v.thumbnail || undefined) }));
   const variants = (dto.variants || []).map((v: any) => ({ id: v.id, size: v.size || undefined, color: v.color || undefined, sku: v.sku || undefined, price_override_minor: v.price_minor ?? undefined, stock: v.stock ?? 0, active: !!v.active, title: v.title || undefined }));
   const out: Product = {
     id: dto.id,
@@ -191,12 +195,14 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     if (m.type === "video") {
       const { blob, type, ext } = await toBlob(m.url);
       const signed = await apiFetch(`/v1/media/video-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
-      await fetch(signed.uploadUrl, { method: "PUT", headers: { "Content-Type": type, "x-upsert": "true" }, body: blob });
-      await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: signed.path, thumbnail: m.thumbnailUrl, position: m.position } });
+      const up = await supabase.storage.from('product-videos').uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
+      if ((up as any).error) throw new Error((up as any).error.message || 'Upload failed');
+      await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: signed.path, thumbnail: m.thumbnailUrl ? (m.thumbnailUrl.startsWith('data:') ? undefined : (m.thumbnailUrl as any)) : undefined, position: m.position } });
     } else {
       const { blob, type, ext } = await toBlob(m.url);
       const signed = await apiFetch(`/v1/media/image-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
-      await fetch(signed.uploadUrl, { method: "PUT", headers: { "Content-Type": type, "x-upsert": "true" }, body: blob });
+      const up = await supabase.storage.from('product-images').uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
+      if ((up as any).error) throw new Error((up as any).error.message || 'Upload failed');
       await apiFetch(`/v1/products/${pid}/images`, { method: "POST", json: { path: signed.path, alt_text: m.alt, position: m.position } });
     }
   };
