@@ -38,14 +38,14 @@ const variantSchema = z.object({
 
 const schema = z.object({
   title: z.string().min(1, "Required"),
-  description: z.string().min(1, "Required"),
-  category: z.string().min(1, "Required"),
+  description: z.string().optional(),
+  category: z.string().optional(),
   brand: z.string().optional(),
   price: z.coerce.number().min(0),
   compareAtPrice: z.coerce.number().min(0).nullable().optional(),
   costPerItem: z.coerce.number().min(0).optional(),
-  sku: z.string().min(1, "Required"),
-  inventory: z.coerce.number().int().min(0),
+  sku: z.string().optional(),
+  inventory: z.coerce.number().int().min(0).default(0),
   variants: z.array(variantSchema).default([]),
   images: z.array(z.string().min(1)).default([]),
   imagesMeta: z
@@ -433,6 +433,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     if (!isEdit && imageList.length === 0) {
       setImagesError(true);
       imagesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      toast.error("Please add at least one image");
       return;
     }
     const categoryValue = values.category === "Other (Custom)" && values.customCategory?.trim() ? values.customCategory.trim() : values.category;
@@ -491,37 +492,42 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       created_at: new Date().toISOString(), // ignored by API create
     } as unknown as ProductCreate; // cast to allow created_at omission by API
 
-    if (isEdit && initial) {
-      const patch: ProductUpdate = {
-        title: payload.title,
-        description: payload.description,
-        price_minor: payload.price_minor,
-        currency: "THB",
-        category: payload.category,
-        brand: payload.brand,
-        sku: payload.sku,
-        inventory: payload.inventory,
-        weight: payload.weight,
-        deal_active: payload.deal_active,
-        deal_percent: payload.deal_percent,
-        deal_price_minor: payload.deal_price_minor,
-        images: payload.images,
-        variants: payload.variants,
-        videos: payload.videos,
-      };
-      await apiUpdateProduct(initial.id, patch);
-      toast.success("Product updated");
-      onSaved?.(initial as any);
-      onOpenChange(false);
-    } else {
-      await apiCreateProduct(payload);
-      toast.success("Product added");
-      onSaved?.(initial as any);
-      reset(createDefaults);
-      revokeBlobUrls(imageList);
-      setImageList([]);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      onOpenChange(false);
+    try {
+      if (isEdit && initial) {
+        const patch: ProductUpdate = {
+          title: payload.title,
+          description: payload.description,
+          price_minor: payload.price_minor,
+          currency: "THB",
+          category: payload.category,
+          brand: payload.brand,
+          sku: payload.sku,
+          inventory: payload.inventory,
+          weight: payload.weight,
+          deal_active: payload.deal_active,
+          deal_percent: payload.deal_percent,
+          deal_price_minor: payload.deal_price_minor,
+          images: payload.images,
+          variants: payload.variants,
+          videos: payload.videos,
+        };
+        await apiUpdateProduct(initial.id, patch);
+        toast.success("Product updated");
+        onSaved?.(initial as any);
+        onOpenChange(false);
+      } else {
+        await apiCreateProduct(payload);
+        toast.success("Product added");
+        onSaved?.(initial as any);
+        reset(createDefaults);
+        revokeBlobUrls(imageList);
+        setImageList([]);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        onOpenChange(false);
+      }
+    } catch (e: any) {
+      const msg = String(e?.message || e || "");
+      toast.error(msg || "Failed to save product");
     }
   };
 
@@ -652,8 +658,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     description: !!errors.description,
     category: !!errors.category,
     price: !!errors.price,
-    sku: !!errors.sku,
-    inventory: !!errors.inventory,
     discountPercent: !!errors.discountPercent,
   };
 
@@ -663,8 +667,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     if (errors.description) items.push({ id: "description", label: "Description", msg: errors.description.message as string || "Required" });
     if (errors.category) items.push({ id: "category", label: "Category", msg: errors.category.message as string || "Required" });
     if (errors.price) items.push({ id: "price", label: "Price", msg: errors.price.message as string || "Required" });
-    if (errors.sku) items.push({ id: "sku", label: "SKU", msg: errors.sku.message as string || "Required" });
-    if (errors.inventory) items.push({ id: "inventory", label: "Inventory", msg: errors.inventory.message as string || "Required" });
     if (mode === "deal" && errors.discountPercent) items.push({ id: "discountPercent", label: "Discount %", msg: errors.discountPercent.message as string || "Required" });
     if (items.length > 0) {
       setErrorSummary(items);
@@ -852,41 +854,11 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             {/* Pricing */}
             <div className={`card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm ${invalid.price ? "border-red-300" : ""}`}>
               <div className="text-sm font-medium mb-2">Pricing</div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">Price</label>
                   <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} />
                 </div>
-                <div>
-                  <div className="flex items-center gap-1">
-                    <label className="block text-sm text-neutral-700" htmlFor="compareAtPrice">Compare at</label>
-                    <TooltipRoot>
-                      <TooltipTrigger asChild>
-                        <button type="button" aria-label="Compare at help" className="inline-flex items-center text-neutral-400 hover:text-neutral-600 focus:outline-none">
-                          <Info size={14} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipPortal>
-                        <TooltipContent sideOffset={6} className="max-w-xs rounded-md border border-neutral-300 bg-white p-2 text-xs shadow-card">
-                          Compare at price is the original or reference price shown as a strike-through to indicate savings. It should be greater than the current Price.
-                          <TooltipArrow className="fill-white" />
-                        </TooltipContent>
-                      </TooltipPortal>
-                    </TooltipRoot>
-                  </div>
-                  <input id="compareAtPrice" type="number" step="0.01" {...register("compareAtPrice")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.compareAtPrice} />
-                  {typeof compareAt === "number" && compareAt < (Number(price as any) || 0) && (
-                    <p className="text-xs text-neutral-600 mt-1">Tip: Compare at should be greater than Price to indicate savings.</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="costPerItem">Cost per item</label>
-                  <input id="costPerItem" type="number" step="0.01" {...register("costPerItem")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.costPerItem} />
-                </div>
-              </div>
-              <div className="mt-2 text-sm text-neutral-700 flex gap-6">
-                <div>Profit: <span className="font-medium">{formatCurrency(profit)}</span></div>
-                <div>Profit margin: <span className="font-medium">{Number.isFinite(margin) ? `${margin.toFixed(0)}%` : "—"}</span></div>
               </div>
             </div>
 
@@ -973,41 +945,16 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-neutral-700 mb-1" htmlFor="sku">SKU</label>
-                  <input id="sku" {...register("sku")} className={`w-full rounded-lg border ${invalid.sku ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.sku} />
+                  <input id="sku" {...register("sku")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.sku} />
                 </div>
                 <div>
                   <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
-                  <input id="inventory" type="number" {...register("inventory")} className={`w-full rounded-lg border ${invalid.inventory ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.inventory} />
+                  <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} />
                 </div>
               </div>
             </div>
 
-            {/* Physicals */}
-            <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-              <label className="block text-sm text-neutral-700 mb-1" htmlFor="weightValue">Weight per item</label>
-              <div className="flex gap-2">
-                <input
-                  id="weightValue"
-                  type="text"
-                  inputMode="decimal"
-                  value={weightValue ?? ""}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    if (raw === "") {
-                      setValue("weight.value", undefined as any, { shouldDirty: true });
-                    } else {
-                      const num = Number(raw);
-                      if (!Number.isNaN(num)) setValue("weight.value", num as any, { shouldDirty: true });
-                    }
-                  }}
-                  className="w-full rounded-lg border border-neutral-300 px-3 py-2"
-                />
-                <select value={weightUnit ?? "g"} onChange={(e) => setValue("weight.unit", e.target.value as any, { shouldDirty: true })} className="rounded-lg border border-neutral-300 px-3 py-2">
-                  <option value="g">g</option>
-                  <option value="kg">kg</option>
-                </select>
-              </div>
-            </div>
+            {/* Physicals removed for Phase 1 */}
 
             {/* Variants */}
             <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">

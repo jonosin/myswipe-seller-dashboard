@@ -159,10 +159,21 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     currency: input.currency,
     category: input.category,
     brand: input.brand,
-    active: false
+    active: true
   }});
   const pid = base.id as string;
-  for (const v of input.variants || []) {
+  const variantsArr = Array.isArray(input.variants) ? input.variants : [];
+  const hasProvidedVariants = variantsArr.length > 0;
+  const toCreate = hasProvidedVariants ? variantsArr : [{
+    sku: undefined,
+    title: 'Default',
+    price_override_minor: undefined,
+    size: undefined,
+    color: undefined,
+    stock: (typeof (input as any).inventory === 'number' ? Math.max(0, (input as any).inventory) : 0),
+    active: true,
+  }];
+  for (const v of toCreate) {
     await apiFetch(`/v1/products/${pid}/variants`, { method: "POST", json: {
       sku: v.sku,
       title: v.title,
@@ -174,6 +185,25 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     }});
   }
   const uploadMedia = async (m: Media) => {
+    const uploadWithFallback = async (
+      bucket: 'product-images' | 'product-videos',
+      signed: { path: string; token: string; uploadUrl: string },
+      blob: Blob,
+      type: string
+    ) => {
+      try {
+        const up = await supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
+        if ((up as any)?.error) throw new Error((up as any).error.message || 'Upload failed');
+      } catch (e) {
+        // Fallback to raw PUT to signedUrl
+        const resp = await fetch(signed.uploadUrl, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob });
+        if (!resp.ok) {
+          let t = '';
+          try { t = await resp.text(); } catch {}
+          throw new Error(t || `Upload failed (${resp.status})`);
+        }
+      }
+    };
     const toBlob = async (url: string): Promise<{ blob: Blob, type: string, ext: string }> => {
       if (url.startsWith("data:")) {
         const m = /^data:([^;]+);base64,(.*)$/.exec(url);
@@ -195,14 +225,21 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     if (m.type === "video") {
       const { blob, type, ext } = await toBlob(m.url);
       const signed = await apiFetch(`/v1/media/video-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
-      const up = await supabase.storage.from('product-videos').uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
-      if ((up as any).error) throw new Error((up as any).error.message || 'Upload failed');
-      await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: signed.path, thumbnail: m.thumbnailUrl ? (m.thumbnailUrl.startsWith('data:') ? undefined : (m.thumbnailUrl as any)) : undefined, position: m.position } });
+      await uploadWithFallback('product-videos', signed, blob, type);
+      let thumbPath: string | undefined;
+      if (m.thumbnailUrl && m.thumbnailUrl.startsWith('data:')) {
+        try {
+          const t = await toBlob(m.thumbnailUrl);
+          const thumbSigned = await apiFetch(`/v1/media/image-signed-url`, { method: "POST", json: { fileName: `thumb.${t.ext}`, contentType: t.type, productId: pid } });
+          await uploadWithFallback('product-images', thumbSigned, t.blob, t.type);
+          thumbPath = thumbSigned.path as string;
+        } catch {}
+      }
+      await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: signed.path, thumbnail: thumbPath ?? (m.thumbnailUrl && !m.thumbnailUrl.startsWith('data:') ? m.thumbnailUrl : undefined), position: m.position } });
     } else {
       const { blob, type, ext } = await toBlob(m.url);
       const signed = await apiFetch(`/v1/media/image-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
-      const up = await supabase.storage.from('product-images').uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
-      if ((up as any).error) throw new Error((up as any).error.message || 'Upload failed');
+      await uploadWithFallback('product-images', signed, blob, type);
       await apiFetch(`/v1/products/${pid}/images`, { method: "POST", json: { path: signed.path, alt_text: m.alt, position: m.position } });
     }
   };
@@ -211,8 +248,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
   if (input.deal_active) {
     await apiFetch(`/v1/products/${pid}/deal`, { method: "PATCH", json: { deal_active: true, deal_percent: input.deal_percent } });
   }
-  const full = await getProduct(pid);
-  return full;
+  return { id: pid } as unknown as Product;
 }
 
 export async function updateProduct(id: string, input: ProductUpdate): Promise<Product> {
