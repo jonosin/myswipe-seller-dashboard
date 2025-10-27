@@ -18,7 +18,7 @@ export default function Topbar() {
         <button aria-label="Toggle navigation" onClick={toggleSidebar} className="inline-flex items-center justify-center rounded-md border border-neutral-300 p-2 sm:hidden">
           <Menu className="h-5 w-5" />
         </button>
-        <Link href="/dashboard" className="font-semibold tracking-tight">Myswipe</Link>
+        <Link href="/products" className="font-semibold tracking-tight">Myswipe</Link>
         <div className="ml-auto flex items-center gap-3">
           <button
             className="rounded-md border border-neutral-300 px-3 py-1 text-sm"

@@ -108,6 +108,8 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
     price_minor: r.price_minor ?? 0,
     currency: (r.currency as any) || "THB",
     mode: r.deal_active ? "deal" : "discover",
+    coupon_code: r.coupon_code ?? undefined,
+    is_swipe_hour: !!r.is_swipe_hour,
   }));
   const { q, status, mode, min_discount } = params;
   if (q) {
@@ -148,6 +150,10 @@ export async function getProduct(id: string): Promise<Product> {
     variants,
     created_at: dto.created_at,
   };
+  // Attach discovery extras for edit form
+  (out as any).external_url = dto.external_url ?? "";
+  (out as any).coupon_code = dto.coupon_code ?? "";
+  (out as any).is_swipe_hour = !!dto.is_swipe_hour;
   return out;
 }
 
@@ -159,6 +165,10 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     currency: input.currency,
     category: input.category,
     brand: input.brand,
+    // discovery extras
+    external_url: (input as any).external_url,
+    coupon_code: (input as any).coupon_code,
+    is_swipe_hour: !!(input as any).is_swipe_hour,
     active: true
   }});
   const pid = base.id as string;
@@ -170,7 +180,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     price_override_minor: undefined,
     size: undefined,
     color: undefined,
-    stock: (typeof (input as any).inventory === 'number' ? Math.max(0, (input as any).inventory) : 0),
+    stock: (typeof (input as any).inventory === 'number' ? Math.max(1, (input as any).inventory) : 1),
     active: true,
   }];
   for (const v of toCreate) {
@@ -180,7 +190,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       price_minor: v.price_override_minor ?? input.price_minor,
       size: v.size,
       color: v.color,
-      stock: v.stock ?? 0,
+      stock: v.stock ?? 1,
       active: v.active ?? true,
     }});
   }
@@ -259,6 +269,9 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
   if (typeof input.currency === "string") core.currency = input.currency;
   if (typeof input.category === "string") core.category = input.category;
   if (typeof input.brand === "string") core.brand = input.brand;
+  if (typeof (input as any).external_url === "string") core.external_url = (input as any).external_url;
+  if ((input as any).coupon_code !== undefined) core.coupon_code = (input as any).coupon_code;
+  if (typeof (input as any).is_swipe_hour === "boolean") core.is_swipe_hour = !!(input as any).is_swipe_hour;
   if (Object.keys(core).length) await apiFetch(`/v1/products/${id}`, { method: "PATCH", json: core });
   if (typeof input.deal_active === "boolean" || typeof input.deal_percent === "number" || typeof input.deal_price_minor === "number") {
     await apiFetch(`/v1/products/${id}/deal`, { method: "PATCH", json: {

@@ -43,7 +43,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     if (!ready) return;
     const isAuthRoute = pathname === "/login" || pathname === "/auth/callback";
     if (!isAuthRoute && !hasSession) router.replace("/login");
-    if (isAuthRoute && hasSession) router.replace("/dashboard");
+    if (isAuthRoute && hasSession) router.replace("/products");
   }, [ready, hasSession, pathname, router]);
 
   const isAuthRoute = pathname === "/login" || pathname === "/auth/callback";

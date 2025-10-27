@@ -61,6 +61,8 @@ export type ProductSummary = {
   mode: "discover" | "deal"; // derive from deal_active
   review_status?: "pending_review"; // optional pending state
   inventory?: number; // total inventory for list
+  coupon_code?: string;
+  is_swipe_hour?: boolean;
 };
 
 export type ListProductsParams = {

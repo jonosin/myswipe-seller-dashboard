@@ -27,7 +27,7 @@ import { StatusBadge } from "@/components/status-badge";
 const variantSchema = z.object({
   size: z.string().optional(),
   color: z.string().optional(),
-  stock: z.coerce.number().int().min(0).default(0),
+  stock: z.coerce.number().int().min(0).default(1),
   optionValues: z.record(z.string()).optional(),
   price: z.coerce.number().min(0).optional(),
   compareAtPrice: z.coerce.number().min(0).nullable().optional(),
@@ -45,7 +45,7 @@ const schema = z.object({
   compareAtPrice: z.coerce.number().min(0).nullable().optional(),
   costPerItem: z.coerce.number().min(0).optional(),
   sku: z.string().optional(),
-  inventory: z.coerce.number().int().min(0).default(0),
+  inventory: z.coerce.number().int().min(0).default(1),
   variants: z.array(variantSchema).default([]),
   images: z.array(z.string().min(1)).default([]),
   imagesMeta: z
@@ -66,6 +66,9 @@ const schema = z.object({
     .object({ value: z.number().optional(), unit: z.enum(["g", "kg"]).default("g") })
     .optional(),
   options: z.array(z.object({ name: z.string(), values: z.array(z.string()) })).default([]),
+  external_url: z.string().url(),
+  coupon_code: z.string().max(64).optional(),
+  is_swipe_hour: z.boolean().default(false),
   customCategory: z.string().optional(),
 }).superRefine((data, ctx) => {
   if (data.mode === "deal") {
@@ -99,7 +102,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     compareAtPrice: null,
     costPerItem: undefined,
     sku: "",
-    inventory: 0,
+    inventory: 1,
     variants: [],
     images: [],
     imagesMeta: [],
@@ -109,6 +112,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     discountPercent: undefined,
     weight: undefined,
     options: [],
+    external_url: "",
+    coupon_code: "",
+    is_swipe_hour: false,
     customCategory: "",
   };
 
@@ -176,6 +182,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           status: initial.status,
           mode: initial.mode ?? "discover",
           discountPercent: initial.mode === "deal" ? (initial.discountPercent ?? 20) : undefined,
+          external_url: (initial as any).external_url || "",
+          coupon_code: (initial as any).coupon_code || "",
+          is_swipe_hour: !!(initial as any).is_swipe_hour,
         }
       : createDefaults,
   });
@@ -325,6 +334,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           discountPercent: initial.mode === "deal" ? (initial.discountPercent ?? 20) : undefined,
           weight: initial.weight,
           options: initial.options ?? [],
+          external_url: (initial as any).external_url || "",
+          coupon_code: (initial as any).coupon_code || "",
+          is_swipe_hour: !!(initial as any).is_swipe_hour,
           customCategory: "",
         };
         reset(editDefaults);
@@ -449,7 +461,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         color: ov["Color"] as string | undefined,
         sku: vm.sku,
         price_override_minor: overrideMinor,
-        stock: vm.inventory ?? 0,
+        stock: vm.inventory ?? 1,
         active: vm.available ?? true,
         title: [ov["Size"], ov["Color"]].filter(Boolean).join(" / ") || undefined,
       };
@@ -490,6 +502,10 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       variants: variantsPayload,
       videos: videosPayload,
       created_at: new Date().toISOString(), // ignored by API create
+      // discovery extras
+      external_url: values.external_url,
+      coupon_code: values.coupon_code || undefined,
+      is_swipe_hour: !!values.is_swipe_hour,
     } as unknown as ProductCreate; // cast to allow created_at omission by API
 
     try {
@@ -510,8 +526,8 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           images: payload.images,
           variants: payload.variants,
           videos: payload.videos,
-        };
-        await apiUpdateProduct(initial.id, patch);
+        } as ProductUpdate;
+        await apiUpdateProduct(initial.id, { ...(patch as any), external_url: values.external_url, coupon_code: values.coupon_code || null, is_swipe_hour: !!values.is_swipe_hour } as any);
         toast.success("Product updated");
         onSaved?.(initial as any);
         onOpenChange(false);
@@ -574,6 +590,30 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
 
   const suggestionOptions = ["Size", "Color", "Material", "Style"];
 
+  const addSizePreset = () => {
+    const preset = ["XS","S","M","L","XL"];
+    setOptions((prev) => {
+      const exists = prev.find((o) => o.name.toLowerCase() === "size");
+      if (exists) {
+        const merged = Array.from(new Set([...(exists.values || []), ...preset]));
+        return prev.map((o) => (o.id === exists.id ? { ...o, values: merged } : o));
+      }
+      return [...prev, { id: crypto.randomUUID(), name: "Size", values: preset }];
+    });
+  };
+
+  const addColorPreset = () => {
+    const preset = ["Black","White","Gray","Blue","Red","Green","Yellow"];
+    setOptions((prev) => {
+      const exists = prev.find((o) => o.name.toLowerCase() === "color");
+      if (exists) {
+        const merged = Array.from(new Set([...(exists.values || []), ...preset]));
+        return prev.map((o) => (o.id === exists.id ? { ...o, values: merged } : o));
+      }
+      return [...prev, { id: crypto.randomUUID(), name: "Color", values: preset }];
+    });
+  };
+
   // Build variant combinations (cartesian)
   type VariantKey = string; // JSON string of optionValues
   const variantKeys: VariantKey[] = useMemo(() => {
@@ -624,7 +664,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   const titleVal = watch("title");
   const titleOk = typeof titleVal === "string" && titleVal.trim().length > 0;
   const priceOk = typeof price === "number" && !Number.isNaN(price) && price > 0;
-  const variantsOk = variantKeys.length > 0;
+  const variantsOk = true;
   const dealOk = mode !== "deal" || (typeof discount === "number" && discount >= 1 && discount <= 90);
   const canSubmit = titleOk && priceOk && variantsOk && dealOk;
 
@@ -704,62 +744,30 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               <ul className="list-disc pl-5 space-y-0.5">
                 {errorSummary.map((e) => (
                   <li key={e.id}>
-                    <button type="button" className="underline" onClick={() => {
-                      const el = document.getElementById(e.id) as HTMLElement | null;
-                      if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.focus(); }
-                    }}>{e.label}</button> — {e.msg}
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => {
+                        const el = document.getElementById(e.id) as HTMLElement | null;
+                        if (el) {
+                          el.scrollIntoView({ behavior: "smooth", block: "center" });
+                          setTimeout(() => el.focus(), 250);
+                        }
+                      }}
+                    >
+                      {e.label}
+                    </button>{" "}— {e.msg}
                   </li>
                 ))}
               </ul>
               <div className="mt-2 text-right">
-                <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-xs" onClick={() => setErrorSummary([])}>Dismiss</button>
-              </div>
-
-              <div className="mt-4 border-t border-neutral-200 pt-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Videos <span className="text-neutral-500 text-xs">(optional, up to 3)</span></span>
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="videoInput"
-                      ref={videoInputRef}
-                      type="file"
-                      accept="video/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => onPickVideos(e.target.files)}
-                    />
-                    <input
-                      id="thumbInput"
-                      ref={thumbInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => onPickThumb(e.target.files)}
-                    />
-                    <button type="button" disabled={videoList.length >= 3} onClick={() => videoInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50">Upload video</button>
-                  </div>
-                </div>
-                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {videoList.map((v, idx) => (
-                    <div key={v.id} className="relative border border-neutral-200 rounded-md p-2">
-                      <div className="flex items-center gap-2">
-                        <video src={v.url} className="h-24 rounded border border-neutral-200" controls />
-                        {v.thumb ? (
-                          <img src={v.thumb} alt="Thumbnail" className="h-24 w-24 object-cover rounded border border-neutral-200" />
-                        ) : (
-                          <div className="h-24 w-24 rounded border border-dashed border-neutral-300 flex items-center justify-center text-xs text-neutral-500">No thumbnail</div>
-                        )}
-                      </div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => { setThumbTarget(v.id); thumbInputRef.current?.click(); }}>Set thumbnail</button>
-                        <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => setVideoList((prev) => prev.filter((_, i) => i !== idx))}>Remove</button>
-                      </div>
-                    </div>
-                  ))}
-                  {videoList.length === 0 && (
-                    <div className="text-sm text-neutral-600">No videos added</div>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  className="rounded-md border border-neutral-300 px-2 py-1 text-xs"
+                  onClick={() => setErrorSummary([])}
+                >
+                  Dismiss
+                </button>
               </div>
             </div>
           )}
@@ -768,364 +776,382 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 const t = e.target as HTMLElement | null;
-                const allow = !!(t && t instanceof HTMLInputElement && t.dataset && t.dataset.variantValue === "true");
+                const allow = !!(t && t instanceof HTMLInputElement && (t as any).dataset && (t as any).dataset.variantValue === "true");
                 if (!allow) e.preventDefault();
               }
             }}
             className="mt-4 grid grid-cols-1 gap-4 pb-20"
             aria-label="Product form"
           >
-            {/* Core info: Name + Brand row, Category below full width, then Description */}
-            <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="title">Name</label>
-                  <input id="title" {...register("title")} className={`w-full rounded-lg border ${invalid.title ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.title} />
+          <div>
+            <label className="block text-sm text-neutral-700 mb-1" htmlFor="title">Name</label>
+            <input id="title" {...register("title")} className={`w-full rounded-lg border ${invalid.title ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.title} />
+          </div>
+          <div>
+            <label className="block text-sm text-neutral-700 mb-1" htmlFor="brand">Brand</label>
+            <input id="brand" {...register("brand")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+          </div>
+          <div className="mt-3">
+            <label className="block text-sm text-neutral-700 mb-1" htmlFor="category">Category</label>
+            <div className="relative" role="combobox" aria-expanded={catOpen} aria-owns="category-list" aria-haspopup="listbox">
+              <input
+                id="category"
+                ref={catInputRef}
+                value={category || ""}
+                onChange={(e) => { const v = e.target.value; setValue("category", v, { shouldDirty: true }); setCatOpen(true); setCatActive(-1); }}
+                placeholder="Choose a product category"
+                className={`w-full rounded-lg border ${invalid.category ? "border-red-500" : "border-neutral-300"} px-3 py-2 pr-8`}
+                aria-invalid={!!errors.category}
+                aria-autocomplete="list"
+                autoComplete="off"
+                aria-controls="category-list"
+                aria-activedescendant={catActive >= 0 ? `cat-opt-${catActive}` : undefined}
+                onFocus={() => setCatOpen(true)}
+                onKeyDown={(e) => {
+                  if (!catOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { setCatOpen(true); return; }
+                  if (e.key === "ArrowDown") { e.preventDefault(); setCatActive((i) => Math.min(catMatches.length - 1, i + 1)); }
+                  if (e.key === "ArrowUp") { e.preventDefault(); setCatActive((i) => Math.max(0, i - 1)); }
+                  if (e.key === "Enter" && catActive >= 0 && catActive < catMatches.length) {
+                    e.preventDefault();
+                    const val = catMatches[catActive]!;
+                    setValue("category", val, { shouldDirty: true });
+                    setCatOpen(false);
+                  }
+                }}
+              />
+              <button
+                ref={catBtnRef}
+                type="button"
+                aria-label="Toggle categories"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500"
+                onClick={() => setCatOpen((v) => !v)}
+              >
+                ▾
+              </button>
+              {catOpen && catMatches.length > 0 && (
+                <div ref={catListRef} role="listbox" className="absolute z-50 mt-1 w-full rounded-md border border-neutral-200 bg-white shadow-card max-h-48 overflow-auto" id="category-list">
+                  {catMatches.map((c, idx) => (
+                    <button
+                      role="option"
+                      id={`cat-opt-${idx}`}
+                      aria-selected={idx === catActive}
+                      type="button"
+                      key={c}
+                      className={`block w-full text-left px-3 py-2 hover:bg-neutral-50 ${idx === catActive ? "bg-neutral-50" : ""}`}
+                      onMouseEnter={() => setCatActive(idx)}
+                      onClick={() => { setValue("category", c, { shouldDirty: true }); setCatOpen(false); catInputRef.current?.focus(); }}
+                    >{c}</button>
+                  ))}
                 </div>
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="brand">Brand</label>
-                  <input id="brand" {...register("brand")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+              )}
+            </div>
+            {category === "Other (Custom)" && (
+              <input placeholder="Custom category" {...register("customCategory")} className="mt-2 w-full rounded-lg border border-neutral-300 px-3 py-2" />
+            )}
+          </div>
+          <div className="sm:col-span-2 mt-4">
+            <label className="block text-sm text-neutral-700 mb-1" htmlFor="description">Description</label>
+            <textarea id="description" {...register("description")} className={`w-full rounded-lg border ${invalid.description ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.description} />
+          </div>
+
+          {/* Pricing */}
+          <div className={`card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm ${invalid.price ? "border-red-300" : ""}`}>
+            <div className="text-sm font-medium mb-2">Pricing</div>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">Price</label>
+                <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} />
+              </div>
+            </div>
+          </div>
+
+          {/* Listing mode (segmented) directly below Pricing */}
+          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm -mt-2">
+            <div className="space-y-3">
+              <div>
+                <div className="text-sm text-neutral-700 mb-1">Listing mode</div>
+                <div role="group" aria-label="Listing mode" className="flex w-full rounded-md border border-neutral-300 overflow-hidden">
+                  <button type="button" aria-pressed={mode === "discover"} className={`flex-1 px-3 py-1.5 text-sm ${mode === "discover" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "discover", { shouldDirty: true })}>Discover Feed</button>
+                  <button type="button" aria-pressed={mode === "deal"} className={`flex-1 px-3 py-1.5 text-sm border-l border-neutral-300 ${mode === "deal" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "deal", { shouldDirty: true })}>Deal Session</button>
                 </div>
               </div>
-              <div className="mt-3">
-                <label className="block text-sm text-neutral-700 mb-1" htmlFor="category">Category</label>
-                <div className="relative" role="combobox" aria-expanded={catOpen} aria-owns="category-list" aria-haspopup="listbox">
-                  <input
-                    id="category"
-                    ref={catInputRef}
-                    value={category || ""}
-                    onChange={(e) => { const v = e.target.value; setValue("category", v, { shouldDirty: true }); setCatOpen(true); setCatActive(-1); }}
-                    placeholder="Choose a product category"
-                    className={`w-full rounded-lg border ${invalid.category ? "border-red-500" : "border-neutral-300"} px-3 py-2 pr-8`}
-                    aria-invalid={!!errors.category}
-                    aria-autocomplete="list"
-                    autoComplete="off"
-                    aria-controls="category-list"
-                    aria-activedescendant={catActive >= 0 ? `cat-opt-${catActive}` : undefined}
-                    onFocus={() => setCatOpen(true)}
-                    onKeyDown={(e) => {
-                      if (!catOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { setCatOpen(true); return; }
-                      if (e.key === "ArrowDown") { e.preventDefault(); setCatActive((i) => Math.min(catMatches.length - 1, i + 1)); }
-                      if (e.key === "ArrowUp") { e.preventDefault(); setCatActive((i) => Math.max(0, i - 1)); }
-                      if (e.key === "Enter" && catActive >= 0 && catActive < catMatches.length) {
-                        e.preventDefault();
-                        const val = catMatches[catActive]!;
-                        setValue("category", val, { shouldDirty: true });
-                        setCatOpen(false);
-                      }
-                    }}
-                  />
-                  <button
-                    ref={catBtnRef}
-                    type="button"
-                    aria-label="Toggle categories"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500"
-                    onClick={() => setCatOpen((v) => !v)}
-                  >
-                    ▾
-                  </button>
-                  {catOpen && catMatches.length > 0 && (
-                    <div ref={catListRef} role="listbox" className="absolute z-50 mt-1 w-full rounded-md border border-neutral-200 bg-white shadow-card max-h-48 overflow-auto" id="category-list">
-                      {catMatches.map((c, idx) => (
-                        <button
-                          role="option"
-                          id={`cat-opt-${idx}`}
-                          aria-selected={idx === catActive}
-                          type="button"
-                          key={c}
-                          className={`block w-full text-left px-3 py-2 hover:bg-neutral-50 ${idx === catActive ? "bg-neutral-50" : ""}`}
-                          onMouseEnter={() => setCatActive(idx)}
-                          onClick={() => { setValue("category", c, { shouldDirty: true }); setCatOpen(false); catInputRef.current?.focus(); }}
-                        >{c}</button>
-                      ))}
+              {mode === "deal" && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount %</label>
+                    <input
+                      id="discountPercent"
+                      type="number"
+                      min={1}
+                      max={90}
+                      {...register("discountPercent", { valueAsNumber: true })}
+                      aria-invalid={mode === "deal" && (!dealOk)}
+                      className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`}
+                    />
+                    {mode === "deal" && typeof discount === "number" && discount > 90 && (
+                      <p className="text-xs text-red-600 mt-1">Max 90%</p>
+                    )}
+                    {mode === "deal" && typeof discount === "number" && discount < 1 && (
+                      <p className="text-xs text-red-600 mt-1">Min 1%</p>
+                    )}
+                    {mode === "deal" && typeof discount === "number" && discount >= 1 && discount < 20 && (
+                      <p className="text-xs text-neutral-600 mt-1">Tip: Deals under 20% may underperform.</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm text-neutral-700 mb-1" htmlFor="dealPrice">Deal price</label>
+                    <input
+                      id="dealPrice"
+                      type="number"
+                      step="0.01"
+                      value={dealPriceInput}
+                      onChange={(e) => {
+                        const txt = e.target.value;
+                        setDealPriceInput(txt);
+                        const p = Number(price as any);
+                        const dp = Number(txt);
+                        if (Number.isFinite(p) && p > 0 && Number.isFinite(dp)) {
+                          const raw = (1 - dp / p) * 100;
+                          const clamped = Math.max(1, Math.min(90, Math.round(raw)));
+                          setValue("discountPercent", clamped as any, { shouldDirty: true });
+                        }
+                      }}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2"
+                      placeholder="—"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-sm text-neutral-600">After discount</div>
+                    <div className="font-medium">
+                      {typeof discount === "number" && Number.isFinite(Number(price as any)) && !Number.isNaN(Number(price as any) * (1 - discount / 100)) ? formatCurrency(Number(price as any) * (1 - discount / 100)) : "—"}
                     </div>
-                  )}
-                </div>
-                {category === "Other (Custom)" && (
-                  <input placeholder="Custom category" {...register("customCategory")} className="mt-2 w-full rounded-lg border border-neutral-300 px-3 py-2" />
-                )}
-              </div>
-              <div className="sm:col-span-2 mt-4">
-                <label className="block text-sm text-neutral-700 mb-1" htmlFor="description">Description</label>
-                <textarea id="description" {...register("description")} className={`w-full rounded-lg border ${invalid.description ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.description} />
-              </div>
-            </div>
-
-            {/* Pricing */}
-            <div className={`card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm ${invalid.price ? "border-red-300" : ""}`}>
-              <div className="text-sm font-medium mb-2">Pricing</div>
-              <div className="grid grid-cols-1 gap-4">
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">Price</label>
-                  <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} />
-                </div>
-              </div>
-            </div>
-
-            {/* Listing mode (segmented) directly below Pricing */}
-            <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm -mt-2">
-              <div className="space-y-3">
-                <div>
-                  <div className="text-sm text-neutral-700 mb-1">Listing mode</div>
-                  <div role="group" aria-label="Listing mode" className="flex w-full rounded-md border border-neutral-300 overflow-hidden">
-                    <button type="button" aria-pressed={mode === "discover"} className={`flex-1 px-3 py-1.5 text-sm ${mode === "discover" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "discover", { shouldDirty: true })}>Discover Feed</button>
-                    <button type="button" aria-pressed={mode === "deal"} className={`flex-1 px-3 py-1.5 text-sm border-l border-neutral-300 ${mode === "deal" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "deal", { shouldDirty: true })}>Deal Session</button>
+                    <div className="text-xs text-neutral-600">
+                      {(() => {
+                        const p = Number(price as any);
+                        const c = Number(cost as any) || 0;
+                        const d = typeof discount === "number" ? discount : NaN;
+                        const newPrice = Number.isFinite(p) && Number.isFinite(d) ? p * (1 - d / 100) : NaN;
+                        if (!Number.isFinite(newPrice)) return "";
+                        const prof = Math.max(0, newPrice - c);
+                        const marg = newPrice > 0 ? (prof / newPrice) * 100 : NaN;
+                        return `Profit ${formatCurrency(prof)} — Margin ${Number.isFinite(marg) ? marg.toFixed(0) + "%" : "—"}`;
+                      })()}
+                    </div>
                   </div>
                 </div>
-                {mode === "deal" && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount %</label>
-                      <input
-                        id="discountPercent"
-                        type="number"
-                        min={1}
-                        max={90}
-                        {...register("discountPercent", { valueAsNumber: true })}
-                        aria-invalid={mode === "deal" && (!dealOk)}
-                        className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`}
-                      />
-                      {mode === "deal" && typeof discount === "number" && discount > 90 && (
-                        <p className="text-xs text-red-600 mt-1">Max 90%</p>
-                      )}
-                      {mode === "deal" && typeof discount === "number" && discount < 1 && (
-                        <p className="text-xs text-red-600 mt-1">Min 1%</p>
-                      )}
-                      {mode === "deal" && typeof discount === "number" && discount >= 1 && discount < 20 && (
-                        <p className="text-xs text-neutral-600 mt-1">Tip: Deals under 20% may underperform.</p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-sm text-neutral-700 mb-1" htmlFor="dealPrice">Deal price</label>
-                      <input
-                        id="dealPrice"
-                        type="number"
-                        step="0.01"
-                        value={dealPriceInput}
-                        onChange={(e) => {
-                          const txt = e.target.value;
-                          setDealPriceInput(txt);
-                          const p = Number(price as any);
-                          const dp = Number(txt);
-                          if (Number.isFinite(p) && p > 0 && Number.isFinite(dp)) {
-                            const raw = (1 - dp / p) * 100;
-                            const clamped = Math.max(1, Math.min(90, Math.round(raw)));
-                            setValue("discountPercent", clamped as any, { shouldDirty: true });
-                          }
-                        }}
-                        className="w-full rounded-lg border border-neutral-300 px-3 py-2"
-                        placeholder="—"
-                      />
-                    </div>
-                    <div>
-                      <div className="text-sm text-neutral-600">After discount</div>
-                      <div className="font-medium">
-                        {typeof discount === "number" && Number.isFinite(Number(price as any)) && !Number.isNaN(Number(price as any) * (1 - discount / 100)) ? formatCurrency(Number(price as any) * (1 - discount / 100)) : "—"}
-                      </div>
-                      <div className="text-xs text-neutral-600">
-                        {(() => {
-                          const p = Number(price as any);
-                          const c = Number(cost as any) || 0;
-                          const d = typeof discount === "number" ? discount : NaN;
-                          const newPrice = Number.isFinite(p) && Number.isFinite(d) ? p * (1 - d / 100) : NaN;
-                          if (!Number.isFinite(newPrice)) return "";
-                          const prof = Math.max(0, newPrice - c);
-                          const marg = newPrice > 0 ? (prof / newPrice) * 100 : NaN;
-                          return `Profit ${formatCurrency(prof)} — Margin ${Number.isFinite(marg) ? marg.toFixed(0) + "%" : "—"}`;
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                )}
+              )}
+            </div>
+          </div>
+
+          {/* Shop Link & Coupon */}
+          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="external_url">External shop URL</label>
+                <input id="external_url" {...register("external_url")} placeholder="https://example.com/product" className={`w-full rounded-lg border ${errors?.external_url ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!(errors as any)?.external_url} />
+              </div>
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="coupon_code">Coupon code (optional)</label>
+                <input id="coupon_code" {...register("coupon_code")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
+                  <input type="checkbox" {...register("is_swipe_hour")} /> Swipe Hour listing
+                </label>
               </div>
             </div>
+          </div>
 
-            {/* Inventory & Identifiers */}
-            <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="sku">SKU</label>
-                  <input id="sku" {...register("sku")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.sku} />
-                </div>
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
-                  <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} />
-                </div>
+          {/* Inventory & Identifiers */}
+          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="sku">SKU</label>
+                <input id="sku" {...register("sku")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.sku} />
+              </div>
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
+                <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} />
               </div>
             </div>
+          </div>
 
-            {/* Physicals removed for Phase 1 */}
+          {/* Physicals removed for Phase 1 */}
 
-            {/* Variants */}
-            <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Variants</span>
+          {/* Variants */}
+          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Variants</span>
+              <div className="flex items-center gap-2">
+                <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={addSizePreset}>Add Sizes</button>
+                <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={addColorPreset}>Add Colors</button>
                 <button type="button" disabled={options.length >= 3} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50" onClick={addOption}>Add another option</button>
               </div>
-              {options.length === 0 && <div className="text-sm text-neutral-600">No options added</div>}
-              <div className="mt-2 space-y-3">
-                {options.map((opt) => (
-                  <div key={opt.id} className="rounded-lg border border-neutral-200 p-3">
-                    <div className="text-sm text-neutral-700 mb-1">Option name</div>
-                    <input id={`opt-name-${opt.id}`} list={`opt-suggest-${opt.id}`} value={opt.name} onChange={(e) => setOptionName(opt.id, e.target.value)} placeholder="Size" className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
-                    <datalist id={`opt-suggest-${opt.id}`}>
-                      {suggestionOptions.map((s) => <option key={s} value={s} />)}
-                    </datalist>
-                    <div className="mt-3 text-sm text-neutral-700 mb-1">Option values</div>
-                    <div className="space-y-2">
-                      {opt.values.map((v, i) => (
-                        <div
-                          key={i}
-                          className="grid grid-cols-[auto,1fr,auto] items-center gap-2"
-                          onKeyDown={(e) => {
-                            if (e.key === "ArrowUp") { e.preventDefault(); moveOptionValue(opt.id, i, i - 1); }
-                            if (e.key === "ArrowDown") { e.preventDefault(); moveOptionValue(opt.id, i, i + 1); }
-                          }}
-                          onDragOver={(e) => { if (dragState && dragState.optId === opt.id) e.preventDefault(); }}
-                          onDrop={(e) => {
-                            if (!dragState || dragState.optId !== opt.id) return;
-                            e.preventDefault();
-                            moveOptionValue(opt.id, dragState.fromIdx, i);
-                            const newIndex = i;
-                            requestAnimationFrame(() => {
-                              const el = document.getElementById(`opt-val-${opt.id}-${newIndex}`) as HTMLInputElement | null;
-                              el?.focus();
-                            });
-                            setDragState(null);
-                          }}
-                          tabIndex={0}
+            </div>
+            {options.length === 0 && <div className="text-sm text-neutral-600">No options added</div>}
+            <div className="mt-2 space-y-3">
+              {options.map((opt) => (
+                <div key={opt.id} className="rounded-lg border border-neutral-200 p-3">
+                  <div className="text-sm text-neutral-700 mb-1">Option name</div>
+                  <input id={`opt-name-${opt.id}`} list={`opt-suggest-${opt.id}`} value={opt.name} onChange={(e) => setOptionName(opt.id, e.target.value)} placeholder="Size" className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+                  <datalist id={`opt-suggest-${opt.id}`}>
+                    {suggestionOptions.map((s) => <option key={s} value={s} />)}
+                  </datalist>
+                  <div className="mt-3 text-sm text-neutral-700 mb-1">Option values</div>
+                  <div className="space-y-2">
+                    {opt.values.map((v, i) => (
+                      <div
+                        key={i}
+                        className="grid grid-cols-[auto,1fr,auto] items-center gap-2"
+                        onKeyDown={(e) => {
+                          if (e.key === "ArrowUp") { e.preventDefault(); moveOptionValue(opt.id, i, i - 1); }
+                          if (e.key === "ArrowDown") { e.preventDefault(); moveOptionValue(opt.id, i, i + 1); }
+                        }}
+                        onDragOver={(e) => { if (dragState && dragState.optId === opt.id) e.preventDefault(); }}
+                        onDrop={(e) => {
+                          if (!dragState || dragState.optId !== opt.id) return;
+                          e.preventDefault();
+                          moveOptionValue(opt.id, dragState.fromIdx, i);
+                          const newIndex = i;
+                          requestAnimationFrame(() => {
+                            const el = document.getElementById(`opt-val-${opt.id}-${newIndex}`) as HTMLInputElement | null;
+                            el?.focus();
+                          });
+                          setDragState(null);
+                        }}
+                        tabIndex={0}
+                      >
+                        <span
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-neutral-300 cursor-grab active:cursor-grabbing"
+                          draggable
+                          aria-grabbed={dragState?.optId === opt.id}
+                          onDragStart={(e) => { setDragState({ optId: opt.id, fromIdx: i }); try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", ""); } catch {} }}
+                          onDragEnd={() => setDragState(null)}
                         >
-                          <span
-                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-neutral-300 cursor-grab active:cursor-grabbing"
-                            draggable
-                            aria-grabbed={dragState?.optId === opt.id}
-                            onDragStart={(e) => { setDragState({ optId: opt.id, fromIdx: i }); try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", ""); } catch {} }}
-                            onDragEnd={() => setDragState(null)}
-                          >
-                            <GripVertical size={14} />
-                          </span>
-                          <input
-                            id={`opt-val-${opt.id}-${i}`}
-                            value={v}
-                            onChange={(e) => setOptions((prev) => prev.map((o) => (o.id === opt.id ? { ...o, values: o.values.map((vv, ii) => (ii === i ? e.target.value : vv)) } : o)))}
-                            className="w-full rounded-lg border border-neutral-300 px-3 py-2"
-                          />
-                          <button
-                            type="button"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-300"
-                            aria-label="Delete value"
-                            title="Delete"
-                            onClick={() => removeOptionValue(opt.id, i)}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))}
-                      <div className="grid grid-cols-[auto,1fr,auto] items-center gap-2">
-                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-neutral-300"><GripVertical size={14} /></span>
-                        <div className="relative w-full">
-                        <input
-                          placeholder="Add another value"
-                          data-variant-value="true"
-                          className="w-full rounded-lg border border-neutral-300 px-3 py-2 pr-16"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              const target = e.currentTarget as HTMLInputElement; // avoid React event pooling
-                              const val = (target.value || "").trim();
-                              if (val) {
-                                addOptionValue(opt.id, val);
-                                target.value = "";
-                                const focusId = `opt-val-${opt.id}-${opt.values.length}`; // new index at end
-                                requestAnimationFrame(() => {
-                                  const el = document.getElementById(focusId) as HTMLInputElement | null;
-                                  el?.focus();
-                                });
-                              }
-                            }
-                          }}
-                        />
-                        <span aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 text-xs inline-flex items-center gap-1">
-                          Enter <CornerDownLeft size={14} />
+                          <GripVertical size={14} />
                         </span>
+                        <input
+                          id={`opt-val-${opt.id}-${i}`}
+                          value={v}
+                          onChange={(e) => setOptions((prev) => prev.map((o) => (o.id === opt.id ? { ...o, values: o.values.map((vv, ii) => (ii === i ? e.target.value : vv)) } : o)))}
+                          className="w-full rounded-lg border border-neutral-300 px-3 py-2"
+                        />
+                        <button
+                          type="button"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-300"
+                          aria-label="Delete value"
+                          title="Delete"
+                          onClick={() => removeOptionValue(opt.id, i)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
-                        <span aria-hidden className="inline-flex h-8 w-8 rounded-md border border-transparent" />
-                      </div>
-                      <div>
-                        <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm text-red-600" onClick={() => removeOption(opt.id)}>Delete</button>
-                      </div>
+                    ))}
+                    <div className="grid grid-cols-[auto,1fr,auto] items-center gap-2">
+                      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-neutral-300"><GripVertical size={14} /></span>
+                      <div className="relative w-full">
+                      <input
+                        placeholder="Add another value"
+                        data-variant-value="true"
+                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 pr-16"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const target = e.currentTarget as HTMLInputElement; // avoid React event pooling
+                            const val = (target.value || "").trim();
+                            if (val) {
+                              addOptionValue(opt.id, val);
+                              target.value = "";
+                              const focusId = `opt-val-${opt.id}-${opt.values.length}`; // new index at end
+                              requestAnimationFrame(() => {
+                                const el = document.getElementById(focusId) as HTMLInputElement | null;
+                                el?.focus();
+                              });
+                            }
+                          }
+                        }}
+                      />
+                      <span aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 text-xs inline-flex items-center gap-1">
+                        Enter <CornerDownLeft size={14} />
+                      </span>
+                    </div>
+                      <span aria-hidden className="inline-flex h-8 w-8 rounded-md border border-transparent" />
+                    </div>
+                    <div>
+                      <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm text-red-600" onClick={() => removeOption(opt.id)}>Delete</button>
                     </div>
                   </div>
-                ))}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {variantKeys.length > 0 && (
+            <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm grid grid-cols-1 gap-2">
+              <div className="text-sm font-medium flex items-center gap-2">Variants {anyLow && <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px]">LOW</span>}</div>
+              <div className="overflow-x-auto border border-neutral-200 rounded-md">
+                <table className="table min-w-[700px]">
+                  <thead>
+                    <tr>
+                      <th>Variant</th>
+                      <th className="text-right">Price</th>
+                      <th className="text-right">Compare</th>
+                      <th className="text-right">Cost</th>
+                      <th>SKU</th>
+                      <th className="text-right">Inventory</th>
+                      <th className="text-right">Reserved</th>
+                      <th>Available</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {variantKeys.map((key) => {
+                      const ov = JSON.parse(key) as Record<string, string>;
+                      const vm = variantMap[key] ?? {};
+                      const variantLabel = options.map((o) => ov[o.name]).filter(Boolean).join(" / ");
+                      return (
+                        <tr key={key}>
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <span>{variantLabel}</span>
+                              {(vm.available ?? true) && (vm.inventory ?? 0) < 3 && (
+                                <span className="inline-flex items-center rounded-full border px-1 py-0.5 text-[10px]">LOW</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="text-right">
+                            <input type="number" step="0.01" className="w-24 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.price ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], price: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
+                          </td>
+                          <td className="text-right">
+                            <input type="number" step="0.01" className="w-24 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.compareAtPrice ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], compareAtPrice: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
+                          </td>
+                          <td className="text-right">
+                            <input type="number" step="0.01" className="w-24 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.costPerItem ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], costPerItem: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
+                          </td>
+                          <td>
+                            <input type="text" className="w-28 rounded border border-neutral-300 px-2 py-1" value={vm.sku ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], sku: e.target.value } }))} />
+                          </td>
+                          <td className="text-right">
+                            <input type="number" className="w-20 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.inventory ?? 1} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], inventory: Number(e.target.value) } }))} />
+                          </td>
+                          <td className="text-right">
+                            <span className="inline-block w-20 text-right">0</span>
+                          </td>
+                          <td>
+                            <input type="checkbox" checked={vm.available ?? true} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], available: e.target.checked } }))} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
-
-            {variantKeys.length > 0 && (
-              <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm grid grid-cols-1 gap-2">
-                <div className="text-sm font-medium flex items-center gap-2">Variants {anyLow && <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px]">LOW</span>}</div>
-                <div className="overflow-x-auto border border-neutral-200 rounded-md">
-                  <table className="table min-w-[700px]">
-                    <thead>
-                      <tr>
-                        <th>Variant</th>
-                        <th className="text-right">Price</th>
-                        <th className="text-right">Compare</th>
-                        <th className="text-right">Cost</th>
-                        <th>SKU</th>
-                        <th className="text-right">Inventory</th>
-                        <th className="text-right">Reserved</th>
-                        <th>Available</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {variantKeys.map((key) => {
-                        const ov = JSON.parse(key) as Record<string, string>;
-                        const vm = variantMap[key] ?? {};
-                        const variantLabel = options.map((o) => ov[o.name]).filter(Boolean).join(" / ");
-                        return (
-                          <tr key={key}>
-                            <td>
-                              <div className="flex items-center gap-2">
-                                <span>{variantLabel}</span>
-                                {(vm.available ?? true) && (vm.inventory ?? 0) < 3 && (
-                                  <span className="inline-flex items-center rounded-full border px-1 py-0.5 text-[10px]">LOW</span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="text-right">
-                              <input type="number" step="0.01" className="w-24 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.price ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], price: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
-                            </td>
-                            <td className="text-right">
-                              <input type="number" step="0.01" className="w-24 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.compareAtPrice ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], compareAtPrice: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
-                            </td>
-                            <td className="text-right">
-                              <input type="number" step="0.01" className="w-24 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.costPerItem ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], costPerItem: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
-                            </td>
-                            <td>
-                              <input type="text" className="w-28 rounded border border-neutral-300 px-2 py-1" value={vm.sku ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], sku: e.target.value } }))} />
-                            </td>
-                            <td className="text-right">
-                              <input type="number" className="w-20 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.inventory ?? 0} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], inventory: Number(e.target.value) } }))} />
-                            </td>
-                            <td className="text-right">
-                              <span className="inline-block w-20 text-right">0</span>
-                            </td>
-                            <td>
-                              <input type="checkbox" checked={vm.available ?? true} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], available: e.target.checked } }))} />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+          )}
 
             {/* Media */}
-            <div ref={imagesSectionRef} id="imagesSection" className={`card rounded-xl border ${imagesError ? "border-red-300" : "border-neutral-200"} bg-white p-4 shadow-sm`}>
+            <div ref={imagesSectionRef} id="imagesSection" className={`${imagesError ? "border-red-300" : "border-neutral-200"} card rounded-xl border bg-white p-4 shadow-sm`}>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Product Image</span>
+                <span className="text-sm font-medium">Images / Videos</span>
                 <div className="flex items-center gap-2">
                   <input
                     key={openCycle}
@@ -1137,7 +1163,25 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                     className="hidden"
                     onChange={(e) => onPickFiles(e.target.files)}
                   />
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload</button>
+                  <input
+                    id="videoInput"
+                    ref={videoInputRef}
+                    type="file"
+                    accept="video/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => onPickVideos(e.target.files)}
+                  />
+                  <input
+                    id="thumbInput"
+                    ref={thumbInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => onPickThumb(e.target.files)}
+                  />
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload images</button>
+                  <button type="button" disabled={videoList.length >= 3} onClick={() => videoInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50">Upload videos</button>
                 </div>
               </div>
               <div
@@ -1148,17 +1192,46 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                 {imageList.map((im, idx) => (
                   <div key={im.id} data-image-tile="1" className={`relative group border border-neutral-200 rounded-md overflow-hidden ${draggingIdx === idx ? "ring-2 ring-black/20" : ""}`} onDragOver={onImageDragOver(idx)} onDrop={onImageDrop(idx)}>
                     <div className="absolute left-1 top-1 inline-flex items-center gap-1 rounded bg-white/90 border border-neutral-300 px-1 text-[11px]">
-                      <span className="inline-flex items-center cursor-grab active:cursor-grabbing" draggable aria-label="Reorder image" aria-grabbed={draggingIdx === idx} onDragStart={onImageDragStart(idx)} onDragEnd={onImageDragEnd}>
+                      <span
+                        className="inline-flex items-center cursor-grab active:cursor-grabbing"
+                        draggable
+                        aria-label="Reorder image"
+                        aria-grabbed={draggingIdx === idx}
+                        onDragStart={onImageDragStart(idx)}
+                        onDragEnd={onImageDragEnd}
+                      >
                         <GripVertical size={12} />
                       </span>
                       {idx === 0 && <span>Primary</span>}
                     </div>
-                    <img src={im.dataUrl || im.url} alt={im.alt || "Product"} className="h-24 w-full object-cover" />
+                    <img src={im.dataUrl || im.url} alt={im.alt || "Product"} className="h-28 w-full object-contain bg-neutral-50" />
                     <button type="button" onClick={() => onRemoveImage(idx)} className="absolute right-1 top-1 rounded bg-white/90 border border-neutral-300 px-1 text-xs">Remove</button>
                   </div>
                 ))}
                 {imageList.length === 0 && (
                   <div className="text-sm text-neutral-600">No images uploaded</div>
+                )}
+              </div>
+              {/* Videos grid */}
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {videoList.map((v, idx) => (
+                  <div key={v.id} className="relative border border-neutral-200 rounded-md p-2">
+                    <div className="flex items-center gap-2">
+                      <video src={v.url} className="h-28 w-full rounded border border-neutral-200 object-contain bg-neutral-50" controls />
+                      {v.thumb ? (
+                        <img src={v.thumb} alt="Thumbnail" className="h-28 w-28 object-contain rounded border border-neutral-200 bg-neutral-50" />
+                      ) : (
+                        <div className="h-28 w-28 rounded border border-dashed border-neutral-300 flex items-center justify-center text-xs text-neutral-500">No thumbnail</div>
+                      )}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => { setThumbTarget(v.id); thumbInputRef.current?.click(); }}>Set thumbnail</button>
+                      <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => setVideoList((prev) => prev.filter((_, i) => i !== idx))}>Remove</button>
+                    </div>
+                  </div>
+                ))}
+                {videoList.length === 0 && (
+                  <div className="text-sm text-neutral-600">No videos uploaded</div>
                 )}
               </div>
             </div>

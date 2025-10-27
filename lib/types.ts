@@ -61,6 +61,10 @@ export type Product = {
   status: ProductStatus;
   mode?: "discover" | "deal";
   discountPercent?: number; // only for mode === "deal"
+  // Phase 2 discovery fields
+  external_url?: string;
+  coupon_code?: string;
+  is_swipe_hour?: boolean;
 };
 
 export type OrderStatus = "paid" | "fulfilled" | "in_transit" | "refunded";

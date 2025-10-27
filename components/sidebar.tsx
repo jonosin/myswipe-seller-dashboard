@@ -3,15 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAppStore } from "@/lib/store";
-import { LayoutDashboard, Package, ShoppingBag, Truck, Banknote, Settings } from "lucide-react";
+import { Package, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/products", label: "Products", icon: Package },
-  { href: "/orders", label: "Orders", icon: ShoppingBag },
-  { href: "/shipping", label: "Shipping", icon: Truck },
-  { href: "/payouts", label: "Payouts", icon: Banknote },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

@@ -350,6 +350,10 @@ export default function ProductsPage() {
               return label.charAt(0).toUpperCase() + label.slice(1);
             } },
             { key: "discount", header: "Discount", render: (p: ProductSummary) => (p.deal_active && typeof p.deal_percent === "number" ? `-${p.deal_percent}%` : "-"), align: "right" },
+            { key: "coupon", header: "Coupon", render: (p: ProductSummary) => (p.coupon_code ? p.coupon_code : "-") },
+            { key: "swipe", header: "Swipe Hour", render: (p: ProductSummary) => (p.is_swipe_hour ? (
+              <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium">SWIPE</span>
+            ) : "-") },
             { key: "status", header: "Status", render: (p: ProductSummary) => <StatusBadge status={p.active ? "active" : (p.review_status === "pending_review" ? "pending_review" : "draft")} /> },
           ]}
           rows={paged}
@@ -384,6 +388,9 @@ export default function ProductsPage() {
                 status: full.active ? "active" : "draft",
                 mode: full.deal_active ? "deal" : "discover",
                 discountPercent: full.deal_percent,
+                external_url: (full as any).external_url || "",
+                coupon_code: (full as any).coupon_code || "",
+                is_swipe_hour: !!(full as any).is_swipe_hour,
               } as Product;
               setEditProduct(mapped);
               setOpenForm(true);
