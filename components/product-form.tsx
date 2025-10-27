@@ -122,6 +122,23 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     onPickVideos(files);
   };
 
+  const onPickMedia = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const imgDT = new DataTransfer();
+    const vidDT = new DataTransfer();
+    for (let i = 0; i < files.length; i++) {
+      const f = files.item(i);
+      if (!f) continue;
+      if (f.type.startsWith("image/")) imgDT.items.add(f);
+      else if (f.type.startsWith("video/")) vidDT.items.add(f);
+    }
+    const imgs = imgDT.files;
+    const vids = vidDT.files;
+    if (imgs.length > 0) onPickFiles(imgs);
+    if (vids.length > 0) onPickVideos(vids);
+    setOpenCycle((c) => c + 1);
+  };
+
   // Videos (mock DataURL)
   const onPickVideos = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -219,13 +236,13 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const thumbInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const [thumbTarget, setThumbTarget] = useState<string | null>(null);
   const [openCycle, setOpenCycle] = useState(0);
   const [videoList, setVideoList] = useState<Array<{ id: string; url: string; thumb?: string }>>([]);
   const [pendingReview, setPendingReview] = useState(false);
   const imagesSectionRef = useRef<HTMLDivElement>(null);
   const [imagesError, setImagesError] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
   // Category options (moved earlier so combobox matching has access)
   const categoryOptions = useMemo(
@@ -801,15 +818,17 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               )}
             </div>
           </div>
-          <div>
-            <label className="block text-sm text-neutral-700 mb-1" htmlFor="title">Name</label>
-            <input id="title" {...register("title")} className={`w-full rounded-lg border ${invalid.title ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.title} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-neutral-700 mb-1" htmlFor="title">Name</label>
+              <input id="title" {...register("title")} className={`w-full rounded-lg border ${invalid.title ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.title} />
+            </div>
+            <div>
+              <label className="block text-sm text-neutral-700 mb-1" htmlFor="brand">Brand</label>
+              <input id="brand" {...register("brand")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+            </div>
           </div>
           <div>
-            <label className="block text-sm text-neutral-700 mb-1" htmlFor="brand">Brand</label>
-            <input id="brand" {...register("brand")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
-          </div>
-          <div className="mt-3">
             <label className="block text-sm text-neutral-700 mb-1" htmlFor="category">Category</label>
             <select
               id="category"
@@ -839,22 +858,13 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               <div className="flex items-center gap-2">
                 <input
                   key={openCycle}
-                  id="fileInput"
-                  ref={fileInputRef}
+                  id="mediaInput"
+                  ref={mediaInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   multiple
                   className="hidden"
-                  onChange={(e) => onPickFiles(e.target.files)}
-                />
-                <input
-                  id="videoInput"
-                  ref={videoInputRef}
-                  type="file"
-                  accept="video/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => onPickVideos(e.target.files)}
+                  onChange={(e) => onPickMedia(e.target.files)}
                 />
                 <input
                   id="thumbInput"
@@ -864,17 +874,12 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                   className="hidden"
                   onChange={(e) => onPickThumb(e.target.files)}
                 />
-                <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload images</button>
-                <button type="button" disabled={videoList.length >= 3} onClick={() => videoInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50">Upload videos</button>
+                <button type="button" onClick={() => mediaInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload media</button>
               </div>
             </div>
             {(imageList.length === 0 && videoList.length === 0) && (
               <div className="mt-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-6 text-center">
-                <div className="text-sm text-neutral-600">Drag and drop images or videos here, or</div>
-                <div className="mt-2 flex justify-center gap-2">
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload images</button>
-                  <button type="button" disabled={videoList.length >= 3} onClick={() => videoInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50">Upload videos</button>
-                </div>
+                <div className="text-sm text-neutral-600">Drag and drop images or videos here</div>
               </div>
             )}
             <div
@@ -940,6 +945,10 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">Price</label>
                 <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} />
               </div>
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
+                <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} />
+              </div>
             </div>
           </div>
 
@@ -954,10 +963,12 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="external_url">External shop URL</label>
                 <input id="external_url" {...register("external_url")} placeholder="https://example.com/product" className={`w-full rounded-lg border ${errors?.external_url ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!(errors as any)?.external_url} />
               </div>
-              <div>
-                <label className="block text-sm text-neutral-700 mb-1" htmlFor="coupon_code">Coupon code (optional)</label>
-                <input id="coupon_code" {...register("coupon_code")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
-              </div>
+              {mode === "deal" && (
+                <div>
+                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="coupon_code">Coupon code (optional)</label>
+                  <input id="coupon_code" {...register("coupon_code")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+                </div>
+              )}
               <div className="sm:col-span-2">
                 <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
                   <input type="checkbox" {...register("is_swipe_hour")} /> Swipe Hour listing
@@ -966,21 +977,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             </div>
           </div>
 
-          {/* Advanced */}
-          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <button type="button" className="flex w-full items-center justify-between text-left" onClick={() => setShowAdvanced((v) => !v)}>
-              <span className="text-sm font-medium">Advanced</span>
-              <span className="text-neutral-500">▾</span>
-            </button>
-            {showAdvanced && (
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
-                  <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} />
-                </div>
-              </div>
-            )}
-          </div>
+          
 
           {/* Physicals removed for Phase 1 */}
 
