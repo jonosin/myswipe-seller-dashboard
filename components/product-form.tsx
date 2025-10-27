@@ -33,7 +33,6 @@ const variantSchema = z.object({
   price: z.coerce.number().min(0).optional(),
   compareAtPrice: z.coerce.number().min(0).nullable().optional(),
   costPerItem: z.coerce.number().min(0).optional(),
-  sku: z.string().optional(),
   available: z.boolean().optional(),
 });
 
@@ -45,7 +44,6 @@ const schema = z.object({
   price: z.coerce.number().min(0),
   compareAtPrice: z.coerce.number().min(0).nullable().optional(),
   costPerItem: z.coerce.number().min(0).optional(),
-  sku: z.string().optional(),
   inventory: z.coerce.number().int().min(0).default(1),
   variants: z.array(variantSchema).default([]),
   images: z.array(z.string().min(1)).default([]),
@@ -102,7 +100,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     price: 0,
     compareAtPrice: null,
     costPerItem: undefined,
-    sku: "",
     inventory: 1,
     variants: [],
     images: [],
@@ -175,7 +172,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           brand: (initial as any).brand ?? "",
           price: initial.price,
           compareAtPrice: initial.compareAtPrice ?? null,
-          sku: initial.sku,
           inventory: initial.inventory,
           variants: initial.variants ?? [],
           images: initial.images ?? [],
@@ -223,6 +219,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   const [pendingReview, setPendingReview] = useState(false);
   const imagesSectionRef = useRef<HTMLDivElement>(null);
   const [imagesError, setImagesError] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
   // Category options (moved earlier so combobox matching has access)
   const categoryOptions = useMemo(
@@ -244,25 +241,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     ],
     []
   );
-  const categorySelectOptions = useMemo(() => {
-    const opts = [...categoryOptions];
-    if (category && !opts.includes(category)) {
-      opts.unshift(category);
-    }
-    return opts;
-  }, [category, categoryOptions]);
 
-  // Category combobox state
-  const [catOpen, setCatOpen] = useState(false);
-  const [catActive, setCatActive] = useState<number>(-1);
-  const catInputRef = useRef<HTMLInputElement>(null);
-  const catListRef = useRef<HTMLDivElement>(null);
-  const catBtnRef = useRef<HTMLButtonElement>(null);
-
-  const catMatches = useMemo(() => {
-    const q = (category || "").toLowerCase();
-    return categorySelectOptions.filter((c) => c.toLowerCase().includes(q));
-  }, [category, categorySelectOptions]);
 
   const revokeBlobUrls = (list: Array<{ url: string }>) => {
     list.forEach((im) => {
@@ -289,26 +268,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit, mode]);
 
-  // Close category list on outside click or ESC
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      if (!catOpen) return;
-      const t = e.target as Node | null;
-      if (catListRef.current?.contains(t as Node)) return;
-      if (catInputRef.current?.contains(t as Node)) return;
-      if (catBtnRef.current?.contains(t as Node)) return;
-      setCatOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setCatOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick, true);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick, true);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [catOpen]);
+
 
   // Ensure Images state/input reset on open (create) and object URLs revoked on close
   const prevOpenRef = useRef<boolean>(false);
@@ -324,7 +284,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           price: initial.price,
           compareAtPrice: initial.compareAtPrice ?? null,
           costPerItem: initial.costPerItem,
-          sku: initial.sku,
           inventory: initial.inventory,
           variants: initial.variants ?? [],
           images: initial.images ?? [],
@@ -492,7 +451,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       currency: "THB",
       category: categoryValue,
       brand: (values.brand || "").trim() || undefined,
-      sku: (values.sku || "").trim() || undefined,
       inventory: typeof values.inventory === "number" ? values.inventory : undefined,
       weight: values.weight ? { value: values.weight.value, unit: values.weight.unit ?? "g" } : undefined,
       active: false,
@@ -518,7 +476,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           currency: "THB",
           category: payload.category,
           brand: payload.brand,
-          sku: payload.sku,
           inventory: payload.inventory,
           weight: payload.weight,
           deal_active: payload.deal_active,
@@ -729,14 +686,19 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   return (
     <div className="fixed inset-0 z-50">
       <div className="fixed inset-0 bg-black/20" onClick={() => onOpenChange(false)} />
-      <div className="fixed left-1/2 top-1/2 w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-xl border border-neutral-200 bg-neutral-50 p-4 shadow-card focus:outline-none">
+      <div className="fixed left-1/2 top-1/2 w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-xl border border-neutral-200 bg-neutral-50 p-4 shadow-card focus:outline-none">
         <TooltipProvider>
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">{isEdit ? "Edit Product" : "Add Product"}</h2>
-            {isEdit && (
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              {isEdit && (
                 <StatusBadge status={pendingReview ? "pending_review" : (initial?.status || "draft")} />
-              </div>
+              )}
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload images</button>
+              <button type="button" disabled={videoList.length >= 3} onClick={() => videoInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50">Upload videos</button>
+            </div>
+            {draggingIdx !== null && (
+              <div className="mt-1 text-xs text-neutral-500">Drag by the handle to reorder images.</div>
             )}
           </div>
           {errorSummary.length > 0 && (
@@ -794,58 +756,18 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           </div>
           <div className="mt-3">
             <label className="block text-sm text-neutral-700 mb-1" htmlFor="category">Category</label>
-            <div className="relative" role="combobox" aria-expanded={catOpen} aria-controls="category-list" aria-haspopup="listbox">
-              <input
-                id="category"
-                ref={catInputRef}
-                value={category || ""}
-                onChange={(e) => { const v = e.target.value; setValue("category", v, { shouldDirty: true }); setCatOpen(true); setCatActive(-1); }}
-                placeholder="Choose a product category"
-                className={`w-full rounded-lg border ${invalid.category ? "border-red-500" : "border-neutral-300"} px-3 py-2 pr-8`}
-                aria-invalid={!!errors.category}
-                aria-autocomplete="list"
-                autoComplete="off"
-                aria-controls="category-list"
-                aria-activedescendant={catActive >= 0 ? `cat-opt-${catActive}` : undefined}
-                onFocus={() => setCatOpen(true)}
-                onKeyDown={(e) => {
-                  if (!catOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) { setCatOpen(true); return; }
-                  if (e.key === "ArrowDown") { e.preventDefault(); setCatActive((i) => Math.min(catMatches.length - 1, i + 1)); }
-                  if (e.key === "ArrowUp") { e.preventDefault(); setCatActive((i) => Math.max(0, i - 1)); }
-                  if (e.key === "Enter" && catActive >= 0 && catActive < catMatches.length) {
-                    e.preventDefault();
-                    const val = catMatches[catActive]!;
-                    setValue("category", val, { shouldDirty: true });
-                    setCatOpen(false);
-                  }
-                }}
-              />
-              <button
-                ref={catBtnRef}
-                type="button"
-                aria-label="Toggle categories"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500"
-                onClick={() => setCatOpen((v) => !v)}
-              >
-                ▾
-              </button>
-              {catOpen && catMatches.length > 0 && (
-                <div ref={catListRef} role="listbox" className="absolute z-50 mt-1 w-full rounded-md border border-neutral-200 bg-white shadow-card max-h-48 overflow-auto" id="category-list">
-                  {catMatches.map((c, idx) => (
-                    <button
-                      role="option"
-                      id={`cat-opt-${idx}`}
-                      aria-selected={idx === catActive}
-                      type="button"
-                      key={c}
-                      className={`block w-full text-left px-3 py-2 hover:bg-neutral-50 ${idx === catActive ? "bg-neutral-50" : ""}`}
-                      onMouseEnter={() => setCatActive(idx)}
-                      onClick={() => { setValue("category", c, { shouldDirty: true }); setCatOpen(false); catInputRef.current?.focus(); }}
-                    >{c}</button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <select
+              id="category"
+              value={category || ""}
+              onChange={(e) => setValue("category", e.target.value, { shouldDirty: true })}
+              className={`w-full rounded-lg border ${invalid.category ? "border-red-500" : "border-neutral-300"} px-3 py-2`}
+              aria-invalid={!!errors.category}
+            >
+              <option value="">Select a category</option>
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
             {category === "Other (Custom)" && (
               <input placeholder="Custom category" {...register("customCategory")} className="mt-2 w-full rounded-lg border border-neutral-300 px-3 py-2" />
             )}
@@ -853,6 +775,94 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           <div className="sm:col-span-2 mt-4">
             <label className="block text-sm text-neutral-700 mb-1" htmlFor="description">Description</label>
             <textarea id="description" {...register("description")} className={`w-full rounded-lg border ${invalid.description ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.description} />
+          </div>
+
+          {/* Media (top) */}
+          <div ref={imagesSectionRef} id="imagesTop" className={`${imagesError ? "border-red-300" : "border-neutral-200"} card rounded-xl border bg-white p-4 shadow-sm`}>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Images / Videos</span>
+              <div className="flex items-center gap-2">
+                <input
+                  key={openCycle}
+                  id="fileInput"
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => onPickFiles(e.target.files)}
+                />
+                <input
+                  id="videoInput"
+                  ref={videoInputRef}
+                  type="file"
+                  accept="video/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => onPickVideos(e.target.files)}
+                />
+                <input
+                  id="thumbInput"
+                  ref={thumbInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => onPickThumb(e.target.files)}
+                />
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload images</button>
+                <button type="button" disabled={videoList.length >= 3} onClick={() => videoInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50">Upload videos</button>
+              </div>
+            </div>
+            <div
+              className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2"
+              onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+              onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files) onPickFiles(e.dataTransfer.files); }}
+            >
+              {imageList.map((im, idx) => (
+                <div key={im.id} data-image-tile="1" className={`relative group border border-neutral-200 rounded-md overflow-hidden ${draggingIdx === idx ? "ring-2 ring-black/20" : ""}`} onDragOver={onImageDragOver(idx)} onDrop={onImageDrop(idx)}>
+                  <div className="absolute left-1 top-1 inline-flex items-center gap-1 rounded bg-white/90 border border-neutral-300 px-1 text-[11px]">
+                    <span
+                      className="inline-flex items-center cursor-grab active:cursor-grabbing"
+                      draggable
+                      aria-label="Reorder image"
+                      aria-grabbed={draggingIdx === idx}
+                      onDragStart={onImageDragStart(idx)}
+                      onDragEnd={onImageDragEnd}
+                    >
+                      <GripVertical size={12} />
+                    </span>
+                    {idx === 0 && <span>Primary</span>}
+                  </div>
+                  <Image src={im.dataUrl || im.url} alt={im.alt || "Product"} width={448} height={112} className="h-28 w-full object-contain bg-neutral-50" unoptimized />
+                  <button type="button" onClick={() => onRemoveImage(idx)} className="absolute right-1 top-1 rounded bg-white/90 border border-neutral-300 px-1 text-xs">Remove</button>
+                </div>
+              ))}
+              {imageList.length === 0 && (
+                <div className="text-sm text-neutral-600">No images uploaded</div>
+              )}
+            </div>
+            {/* Videos grid */}
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {videoList.map((v, idx) => (
+                <div key={v.id} className="relative border border-neutral-200 rounded-md p-2">
+                  <div className="flex items-center gap-2">
+                    <video src={v.url} className="h-28 w-full rounded border border-neutral-200 object-contain bg-neutral-50" controls />
+                    {v.thumb ? (
+                      <Image src={v.thumb} alt="Thumbnail" width={112} height={112} className="h-28 w-28 object-contain rounded border border-neutral-200 bg-neutral-50" unoptimized />
+                    ) : (
+                      <div className="h-28 w-28 rounded border border-dashed border-neutral-300 flex items-center justify-center text-xs text-neutral-500">No thumbnail</div>
+                    )}
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => { setThumbTarget(v.id); thumbInputRef.current?.click(); }}>Set thumbnail</button>
+                    <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => setVideoList((prev) => prev.filter((_, i) => i !== idx))}>Remove</button>
+                  </div>
+                </div>
+              ))}
+              {videoList.length === 0 && (
+                <div className="text-sm text-neutral-600">No videos uploaded</div>
+              )}
+            </div>
           </div>
 
           {/* Pricing */}
@@ -963,23 +973,26 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             </div>
           </div>
 
-          {/* Inventory & Identifiers */}
+          {/* Advanced */}
           <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-neutral-700 mb-1" htmlFor="sku">SKU</label>
-                <input id="sku" {...register("sku")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.sku} />
+            <button type="button" className="flex w-full items-center justify-between text-left" onClick={() => setShowAdvanced((v) => !v)}>
+              <span className="text-sm font-medium">Advanced</span>
+              <span className="text-neutral-500">▾</span>
+            </button>
+            {showAdvanced && (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
+                  <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
-                <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} />
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Physicals removed for Phase 1 */}
 
           {/* Variants */}
+          {false && (
           <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Variants</span>
@@ -1086,8 +1099,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               ))}
             </div>
           </div>
+          )}
 
-          {variantKeys.length > 0 && (
+          {false && (
             <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm grid grid-cols-1 gap-2">
               <div className="text-sm font-medium flex items-center gap-2">Variants {anyLow && <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px]">LOW</span>}</div>
               <div className="overflow-x-auto border border-neutral-200 rounded-md">
@@ -1149,7 +1163,8 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             </div>
           )}
 
-            {/* Media */}
+            {/* Media (duplicate hidden) */}
+            {false && (
             <div ref={imagesSectionRef} id="imagesSection" className={`${imagesError ? "border-red-300" : "border-neutral-200"} card rounded-xl border bg-white p-4 shadow-sm`}>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Images / Videos</span>
@@ -1236,7 +1251,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                 )}
               </div>
             </div>
-
+            )}
             {/* Deal Session card removed; handled by segmented control above */}
 
             {/* Actions (sticky) */}

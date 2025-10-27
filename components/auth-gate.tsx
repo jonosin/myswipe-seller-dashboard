@@ -37,7 +37,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       }
     });
     return () => { mounted = false; sub.subscription.unsubscribe(); };
-  }, []);
+  }, [sellerEnsured]);
 
   useEffect(() => {
     if (!ready) return;
