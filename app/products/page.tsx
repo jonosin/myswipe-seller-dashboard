@@ -16,6 +16,7 @@ import { cn, formatTHB } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
 import ConfirmDialog from "@/components/confirm-dialog";
 import { toast } from "@/components/toast";
+import Image from "next/image";
 
 export default function ProductsPage() {
   const [rows, setRows] = useState<ProductSummary[]>([]);
@@ -326,7 +327,7 @@ export default function ProductsPage() {
                         setLightboxReturnEl(e.currentTarget);
                       }}
                     >
-                      <img src={img} alt="" className="h-full w-full object-cover" />
+                      <Image src={img} alt="" width={40} height={40} className="h-full w-full object-cover" />
                     </button>
                   ) : (
                     <div className="h-10 w-10 rounded border border-neutral-200 bg-neutral-100" aria-hidden />
@@ -444,7 +445,11 @@ export default function ProductsPage() {
             }}
           >
             <div className="relative">
-              <img src={lightboxImages[lightboxIndex]} alt="Product image" className="max-h-[70vh] w-full object-contain rounded" />
+              {lightboxImages[lightboxIndex] ? (
+                <Image src={lightboxImages[lightboxIndex] as string} alt="Product image" width={1200} height={900} className="max-h-[70vh] w-full object-contain rounded" />
+              ) : (
+                <div className="h-[70vh] w-full" />
+              )}
               {lightboxImages.length > 0 && (
                 <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded bg-white/80 px-2 py-0.5 text-xs border border-neutral-300">
                   {lightboxIndex + 1} / {lightboxImages.length}

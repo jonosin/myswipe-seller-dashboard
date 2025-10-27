@@ -21,6 +21,7 @@ import { toast } from "@/components/toast";
 import { formatCurrency } from "@/lib/utils";
 import { GripVertical, Info, Trash2, CornerDownLeft } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
+import Image from "next/image";
 
 // Using named Radix component imports for JSX tags
 
@@ -793,7 +794,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           </div>
           <div className="mt-3">
             <label className="block text-sm text-neutral-700 mb-1" htmlFor="category">Category</label>
-            <div className="relative" role="combobox" aria-expanded={catOpen} aria-owns="category-list" aria-haspopup="listbox">
+            <div className="relative" role="combobox" aria-expanded={catOpen} aria-controls="category-list" aria-haspopup="listbox">
               <input
                 id="category"
                 ref={catInputRef}
@@ -1204,7 +1205,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                       </span>
                       {idx === 0 && <span>Primary</span>}
                     </div>
-                    <img src={im.dataUrl || im.url} alt={im.alt || "Product"} className="h-28 w-full object-contain bg-neutral-50" />
+                    <Image src={im.dataUrl || im.url} alt={im.alt || "Product"} width={448} height={112} className="h-28 w-full object-contain bg-neutral-50" unoptimized />
                     <button type="button" onClick={() => onRemoveImage(idx)} className="absolute right-1 top-1 rounded bg-white/90 border border-neutral-300 px-1 text-xs">Remove</button>
                   </div>
                 ))}
@@ -1219,7 +1220,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                     <div className="flex items-center gap-2">
                       <video src={v.url} className="h-28 w-full rounded border border-neutral-200 object-contain bg-neutral-50" controls />
                       {v.thumb ? (
-                        <img src={v.thumb} alt="Thumbnail" className="h-28 w-28 object-contain rounded border border-neutral-200 bg-neutral-50" />
+                        <Image src={v.thumb} alt="Thumbnail" width={112} height={112} className="h-28 w-28 object-contain rounded border border-neutral-200 bg-neutral-50" unoptimized />
                       ) : (
                         <div className="h-28 w-28 rounded border border-dashed border-neutral-300 flex items-center justify-center text-xs text-neutral-500">No thumbnail</div>
                       )}
