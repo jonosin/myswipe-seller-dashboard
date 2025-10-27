@@ -6,6 +6,7 @@ import { useAppStore } from "@/lib/store";
 import { Menu } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 export default function Topbar() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
@@ -18,7 +19,9 @@ export default function Topbar() {
         <button aria-label="Toggle navigation" onClick={toggleSidebar} className="inline-flex items-center justify-center rounded-md border border-neutral-300 p-2 sm:hidden">
           <Menu className="h-5 w-5" />
         </button>
-        <Link href="/products" className="font-semibold tracking-tight">Myswipe</Link>
+        <Link href="/products" className="inline-flex items-center gap-2" aria-label="MySwipes Home">
+          <Image src="/myswipes-logo.svg" alt="MySwipes" width={112} height={20} className="h-5 w-auto" priority />
+        </Link>
         <div className="ml-auto flex items-center gap-3">
           <button
             className="rounded-md border border-neutral-300 px-3 py-1 text-sm"

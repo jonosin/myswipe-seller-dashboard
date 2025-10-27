@@ -116,6 +116,12 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     customCategory: "",
   };
 
+  const onDropAny = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    onPickFiles(files);
+    onPickVideos(files);
+  };
+
   // Videos (mock DataURL)
   const onPickVideos = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -397,6 +403,37 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       if (!moved) return prev;
       arr.splice(index, 0, moved);
       return arr.map((im, i) => ({ ...im, sortOrder: i }));
+    });
+  };
+
+  // Videos DnD (handle-based)
+  const videoDragIndex = useRef<number | null>(null);
+  const [videoDraggingIdx, setVideoDraggingIdx] = useState<number | null>(null);
+  const onVideoDragStart = (index: number) => (e: React.DragEvent<HTMLElement>) => {
+    videoDragIndex.current = index;
+    setVideoDraggingIdx(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const onVideoDragEnd = () => {
+    videoDragIndex.current = null;
+    setVideoDraggingIdx(null);
+  };
+  const onVideoDragOver = (index: number) => (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+  const onVideoDrop = (index: number) => (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const from = videoDragIndex.current;
+    videoDragIndex.current = null;
+    setVideoDraggingIdx(null);
+    if (from == null || from === index) return;
+    setVideoList((prev) => {
+      const arr = prev.slice();
+      const [moved] = arr.splice(from, 1);
+      if (!moved) return prev;
+      arr.splice(index, 0, moved);
+      return arr;
     });
   };
 
@@ -690,16 +727,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         <TooltipProvider>
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">{isEdit ? "Edit Product" : "Add Product"}</h2>
-            <div className="flex items-center gap-2">
-              {isEdit && (
-                <StatusBadge status={pendingReview ? "pending_review" : (initial?.status || "draft")} />
-              )}
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload images</button>
-              <button type="button" disabled={videoList.length >= 3} onClick={() => videoInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50">Upload videos</button>
-            </div>
-            {draggingIdx !== null && (
-              <div className="mt-1 text-xs text-neutral-500">Drag by the handle to reorder images.</div>
-            )}
+            <div className="flex items-center gap-2">{isEdit && (<StatusBadge status={pendingReview ? "pending_review" : (initial?.status || "draft")} />)}</div>
           </div>
           {errorSummary.length > 0 && (
             <div role="alert" className="mt-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm">
@@ -746,6 +774,33 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             className="mt-4 grid grid-cols-1 gap-4 pb-20"
             aria-label="Product form"
           >
+          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="space-y-3">
+              <div>
+                <div className="text-sm text-neutral-700 mb-1">Listing mode</div>
+                <div role="group" aria-label="Listing mode" className="flex w-full rounded-md border border-neutral-300 overflow-hidden">
+                  <button type="button" aria-pressed={mode === "discover"} className={`flex-1 px-3 py-1.5 text-sm ${mode === "discover" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "discover", { shouldDirty: true })}>Discover Feed</button>
+                  <button type="button" aria-pressed={mode === "deal"} className={`flex-1 px-3 py-1.5 text-sm border-l border-neutral-300 ${mode === "deal" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "deal", { shouldDirty: true })}>Deal Session</button>
+                </div>
+              </div>
+              {mode === "deal" && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount %</label>
+                    <input id="discountPercent" type="number" min={1} max={90} {...register("discountPercent", { valueAsNumber: true })} aria-invalid={mode === "deal" && (!dealOk)} className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`} />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-neutral-700 mb-1" htmlFor="dealPrice">Deal price</label>
+                    <input id="dealPrice" type="number" step="0.01" value={dealPriceInput} onChange={(e) => { const txt = e.target.value; setDealPriceInput(txt); const p = Number(price as any); const dp = Number(txt); if (Number.isFinite(p) && p > 0 && Number.isFinite(dp)) { const raw = (1 - dp / p) * 100; const clamped = Math.max(1, Math.min(90, Math.round(raw))); setValue("discountPercent", clamped as any, { shouldDirty: true }); } }} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="—" />
+                  </div>
+                  <div>
+                    <div className="text-sm text-neutral-600">After discount</div>
+                    <div className="font-medium">{typeof discount === "number" && Number.isFinite(Number(price as any)) && !Number.isNaN(Number(price as any) * (1 - discount / 100)) ? formatCurrency(Number(price as any) * (1 - discount / 100)) : "—"}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
           <div>
             <label className="block text-sm text-neutral-700 mb-1" htmlFor="title">Name</label>
             <input id="title" {...register("title")} className={`w-full rounded-lg border ${invalid.title ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.title} />
@@ -778,7 +833,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           </div>
 
           {/* Media (top) */}
-          <div ref={imagesSectionRef} id="imagesTop" className={`${imagesError ? "border-red-300" : "border-neutral-200"} card rounded-xl border bg-white p-4 shadow-sm`}>
+          <div ref={imagesSectionRef} id="imagesTop" className={`${imagesError ? "border-red-300" : "border-neutral-200"} card rounded-xl border bg-white p-4 shadow-sm`} onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); onDropAny(e.dataTransfer.files); }}>
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Images / Videos</span>
               <div className="flex items-center gap-2">
@@ -813,6 +868,15 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                 <button type="button" disabled={videoList.length >= 3} onClick={() => videoInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50">Upload videos</button>
               </div>
             </div>
+            {(imageList.length === 0 && videoList.length === 0) && (
+              <div className="mt-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-6 text-center">
+                <div className="text-sm text-neutral-600">Drag and drop images or videos here, or</div>
+                <div className="mt-2 flex justify-center gap-2">
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload images</button>
+                  <button type="button" disabled={videoList.length >= 3} onClick={() => videoInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50">Upload videos</button>
+                </div>
+              </div>
+            )}
             <div
               className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2"
               onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
@@ -844,8 +908,11 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             {/* Videos grid */}
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
               {videoList.map((v, idx) => (
-                <div key={v.id} className="relative border border-neutral-200 rounded-md p-2">
+                <div key={v.id} className={`relative border border-neutral-200 rounded-md p-2 ${videoDraggingIdx === idx ? "ring-2 ring-black/20" : ""}`} onDragOver={onVideoDragOver(idx)} onDrop={onVideoDrop(idx)}>
                   <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center cursor-grab active:cursor-grabbing" draggable aria-label="Reorder video" aria-grabbed={videoDraggingIdx === idx} onDragStart={onVideoDragStart(idx)} onDragEnd={onVideoDragEnd}>
+                      <GripVertical size={12} />
+                    </span>
                     <video src={v.url} className="h-28 w-full rounded border border-neutral-200 object-contain bg-neutral-50" controls />
                     {v.thumb ? (
                       <Image src={v.thumb} alt="Thumbnail" width={112} height={112} className="h-28 w-28 object-contain rounded border border-neutral-200 bg-neutral-50" unoptimized />
@@ -876,83 +943,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             </div>
           </div>
 
-          {/* Listing mode (segmented) directly below Pricing */}
-          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm -mt-2">
-            <div className="space-y-3">
-              <div>
-                <div className="text-sm text-neutral-700 mb-1">Listing mode</div>
-                <div role="group" aria-label="Listing mode" className="flex w-full rounded-md border border-neutral-300 overflow-hidden">
-                  <button type="button" aria-pressed={mode === "discover"} className={`flex-1 px-3 py-1.5 text-sm ${mode === "discover" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "discover", { shouldDirty: true })}>Discover Feed</button>
-                  <button type="button" aria-pressed={mode === "deal"} className={`flex-1 px-3 py-1.5 text-sm border-l border-neutral-300 ${mode === "deal" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "deal", { shouldDirty: true })}>Deal Session</button>
-                </div>
-              </div>
-              {mode === "deal" && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount %</label>
-                    <input
-                      id="discountPercent"
-                      type="number"
-                      min={1}
-                      max={90}
-                      {...register("discountPercent", { valueAsNumber: true })}
-                      aria-invalid={mode === "deal" && (!dealOk)}
-                      className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`}
-                    />
-                    {mode === "deal" && typeof discount === "number" && discount > 90 && (
-                      <p className="text-xs text-red-600 mt-1">Max 90%</p>
-                    )}
-                    {mode === "deal" && typeof discount === "number" && discount < 1 && (
-                      <p className="text-xs text-red-600 mt-1">Min 1%</p>
-                    )}
-                    {mode === "deal" && typeof discount === "number" && discount >= 1 && discount < 20 && (
-                      <p className="text-xs text-neutral-600 mt-1">Tip: Deals under 20% may underperform.</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm text-neutral-700 mb-1" htmlFor="dealPrice">Deal price</label>
-                    <input
-                      id="dealPrice"
-                      type="number"
-                      step="0.01"
-                      value={dealPriceInput}
-                      onChange={(e) => {
-                        const txt = e.target.value;
-                        setDealPriceInput(txt);
-                        const p = Number(price as any);
-                        const dp = Number(txt);
-                        if (Number.isFinite(p) && p > 0 && Number.isFinite(dp)) {
-                          const raw = (1 - dp / p) * 100;
-                          const clamped = Math.max(1, Math.min(90, Math.round(raw)));
-                          setValue("discountPercent", clamped as any, { shouldDirty: true });
-                        }
-                      }}
-                      className="w-full rounded-lg border border-neutral-300 px-3 py-2"
-                      placeholder="—"
-                    />
-                  </div>
-                  <div>
-                    <div className="text-sm text-neutral-600">After discount</div>
-                    <div className="font-medium">
-                      {typeof discount === "number" && Number.isFinite(Number(price as any)) && !Number.isNaN(Number(price as any) * (1 - discount / 100)) ? formatCurrency(Number(price as any) * (1 - discount / 100)) : "—"}
-                    </div>
-                    <div className="text-xs text-neutral-600">
-                      {(() => {
-                        const p = Number(price as any);
-                        const c = Number(cost as any) || 0;
-                        const d = typeof discount === "number" ? discount : NaN;
-                        const newPrice = Number.isFinite(p) && Number.isFinite(d) ? p * (1 - d / 100) : NaN;
-                        if (!Number.isFinite(newPrice)) return "";
-                        const prof = Math.max(0, newPrice - c);
-                        const marg = newPrice > 0 ? (prof / newPrice) * 100 : NaN;
-                        return `Profit ${formatCurrency(prof)} — Margin ${Number.isFinite(marg) ? marg.toFixed(0) + "%" : "—"}`;
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+          {false && (
+            <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm -mt-2"></div>
+          )}
 
           {/* Shop Link & Coupon */}
           <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
