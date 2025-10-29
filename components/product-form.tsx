@@ -579,14 +579,24 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     const priceMinor = toMinor(values.price);
     const dealPercent = values.mode === "deal" ? values.discountPercent : undefined;
     const dealPriceMinor = typeof dealPercent === "number" ? Math.max(0, Math.round(priceMinor * (1 - dealPercent / 100))) : undefined;
-    const mediaPayload: DtoMedia[] = imageList.map((im, i) => ({
+    const orderedImages = mediaOrder.filter(t => t.startsWith('img:')).map(t => {
+      const id = t.slice(4);
+      return imageList.find(im => im.id === id);
+    }).filter(Boolean) as typeof imageList;
+    const orderedVideos = mediaOrder.filter(t => t.startsWith('vid:')).map(t => {
+      const id = t.slice(4);
+      return videoList.find(v => v.id === id);
+    }).filter(Boolean) as typeof videoList;
+    const finalImagesOrder = orderedImages.length ? orderedImages : imageList;
+    const finalVideosOrder = orderedVideos.length ? orderedVideos : videoList;
+    const mediaPayload: DtoMedia[] = finalImagesOrder.map((im, i) => ({
       id: im.id,
       url: im.dataUrl || im.url,
       alt: im.alt,
       position: i,
       type: i === 0 ? "thumbnail" : "image",
     }));
-    const videosPayload: any[] = videoList.map((v, i) => ({
+    const videosPayload: any[] = finalVideosOrder.map((v, i) => ({
       id: v.id,
       url: v.url,
       position: i,
@@ -984,14 +994,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                   className="hidden"
                   onChange={(e) => onPickMedia(e.target.files)}
                 />
-                <input
-                  id="thumbInput"
-                  ref={thumbInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => onPickThumb(e.target.files)}
-                />
                 <button type="button" onClick={() => mediaInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload media</button>
               </div>
             </div>
@@ -1001,20 +1003,21 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               </div>
             )}
             {/* Unified media grid */}
-            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="mt-3 text-xs text-neutral-600">Drag to reorder. The first item is displayed first.</div>
+            <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
               {mediaOrder.map((token, idx) => {
                 if (token.startsWith('img:')) {
                   const id = token.slice(4);
                   const im = imageList.find(i => i.id === id);
                   if (!im) return null;
-                  const firstImgId = mediaOrder.find(t => t.startsWith('img:'))?.slice(4);
+                  const isFirst = idx === 0;
                   return (
                     <div key={token} data-media-tile="1" className={`relative group border border-neutral-200 rounded-md overflow-hidden ${mediaDraggingIdx === idx ? 'ring-2 ring-black/20' : ''}`} onDragOver={onMediaDragOver(idx)} onDrop={onMediaDrop(idx)}>
                       <div className="absolute left-1 top-1 inline-flex items-center gap-1 rounded bg-white/90 border border-neutral-300 px-1 text-[11px]">
                         <span className="inline-flex items-center cursor-grab active:cursor-grabbing" draggable aria-label="Reorder media" aria-grabbed={mediaDraggingIdx === idx} onDragStart={onMediaDragStart(idx)} onDragEnd={onMediaDragEnd}>
                           <GripVertical size={12} />
                         </span>
-                        {firstImgId === im.id && <span>Primary</span>}
+                        {isFirst && <span>First</span>}
                       </div>
                       <Image src={im.dataUrl || im.url} alt={im.alt || 'Product'} width={448} height={112} className="h-28 w-full object-contain bg-neutral-50" unoptimized />
                       <button type="button" onClick={() => { const ix = imageList.findIndex(x => x.id === im.id); if (ix >= 0) onRemoveImage(ix); }} className="absolute right-1 top-1 rounded bg-white/90 border border-neutral-300 px-1 text-xs">Remove</button>
@@ -1032,16 +1035,8 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                           <GripVertical size={12} />
                         </span>
                         <video src={v.url} poster={v.thumb} className="h-28 w-full rounded border border-neutral-200 object-contain bg-neutral-50" controls playsInline muted preload="metadata" />
-                        {v.thumb ? (
-                          <Image src={v.thumb} alt="Thumbnail" width={112} height={112} className="h-28 w-28 object-contain rounded border border-neutral-200 bg-neutral-50" unoptimized />
-                        ) : (
-                          <div className="h-28 w-28 rounded border border-dashed border-neutral-300 flex items-center justify-center text-xs text-neutral-500">No thumbnail</div>
-                        )}
                       </div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => { setThumbTarget(v.id); thumbInputRef.current?.click(); }}>Set thumbnail</button>
-                        <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => { const ix = videoList.findIndex(x => x.id === v.id); if (ix >= 0) removeVideoAt(ix); }}>Remove</button>
-                      </div>
+                      <div className="mt-2 flex items-center gap-2"><button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => { const ix = videoList.findIndex(x => x.id === v.id); if (ix >= 0) removeVideoAt(ix); }}>Remove</button></div>
                     </div>
                   );
                 }
