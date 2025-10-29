@@ -455,11 +455,11 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   };
 
   const onSubmit = async (values: FormValues) => {
-    // Require at least one image on create
-    if (!isEdit && imageList.length === 0) {
+    // Require at least one image OR video on create
+    if (!isEdit && imageList.length === 0 && videoList.length === 0) {
       setImagesError(true);
       imagesSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-      toast.error("Please add at least one image");
+      toast.error("Please add at least one image or video");
       return;
     }
     const categoryValue = values.category === "Other (Custom)" && values.customCategory?.trim() ? values.customCategory.trim() : values.category;
@@ -801,19 +801,15 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                 </div>
               </div>
               {mode === "deal" && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount %</label>
-                    <input id="discountPercent" type="number" min={1} max={90} {...register("discountPercent", { valueAsNumber: true })} aria-invalid={mode === "deal" && (!dealOk)} className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`} />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-neutral-700 mb-1" htmlFor="dealPrice">Deal price</label>
-                    <input id="dealPrice" type="number" step="0.01" value={dealPriceInput} onChange={(e) => { const txt = e.target.value; setDealPriceInput(txt); const p = Number(price as any); const dp = Number(txt); if (Number.isFinite(p) && p > 0 && Number.isFinite(dp)) { const raw = (1 - dp / p) * 100; const clamped = Math.max(1, Math.min(90, Math.round(raw))); setValue("discountPercent", clamped as any, { shouldDirty: true }); } }} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="—" />
-                  </div>
-                  <div>
-                    <div className="text-sm text-neutral-600">After discount</div>
-                    <div className="font-medium">{typeof discount === "number" && Number.isFinite(Number(price as any)) && !Number.isNaN(Number(price as any) * (1 - discount / 100)) ? formatCurrency(Number(price as any) * (1 - discount / 100)) : "—"}</div>
-                  </div>
+                <div>
+                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount % (off regular price)</label>
+                  <input id="discountPercent" type="number" min={1} max={90} {...register("discountPercent", { valueAsNumber: true })} aria-invalid={mode === "deal" && (!dealOk)} className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`} placeholder="e.g. 20" />
+                  {mode === "deal" && typeof discount === "number" && discount >= 1 && discount < 20 && (
+                    <p className="text-xs text-neutral-600 mt-1">Tip: Deals under 20% may not attract buyers.</p>
+                  )}
+                  {mode === "deal" && typeof discount === "number" && discount > 90 && (
+                    <p className="text-xs text-red-600 mt-1">Maximum discount is 90%</p>
+                  )}
                 </div>
               )}
             </div>
@@ -940,14 +936,19 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           {/* Pricing */}
           <div className={`card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm ${invalid.price ? "border-red-300" : ""}`}>
             <div className="text-sm font-medium mb-2">Pricing</div>
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">Price</label>
-                <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} />
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">{mode === "deal" ? "Regular Price" : "Price"}</label>
+                <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} placeholder="0.00" />
+                {mode === "deal" && typeof price === "number" && typeof discount === "number" && Number.isFinite(price) && Number.isFinite(discount) && (
+                  <p className="text-xs text-neutral-600 mt-1">
+                    Deal price: <span className="font-medium">{formatCurrency(price * (1 - discount / 100))}</span>
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
-                <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} />
+                <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} placeholder="1" />
               </div>
             </div>
           </div>
@@ -966,14 +967,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               {mode === "deal" && (
                 <div>
                   <label className="block text-sm text-neutral-700 mb-1" htmlFor="coupon_code">Coupon code (optional)</label>
-                  <input id="coupon_code" {...register("coupon_code")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+                  <input id="coupon_code" {...register("coupon_code")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="e.g. SAVE20" />
                 </div>
               )}
-              <div className="sm:col-span-2">
-                <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
-                  <input type="checkbox" {...register("is_swipe_hour")} /> Swipe Hour listing
-                </label>
-              </div>
             </div>
           </div>
 
