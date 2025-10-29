@@ -214,7 +214,12 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
         }
       }
     };
-    const toBlob = async (url: string): Promise<{ blob: Blob, type: string, ext: string }> => {
+    const toBlob = async (url: string, f?: File | Blob): Promise<{ blob: Blob, type: string, ext: string }> => {
+      if (f instanceof Blob) {
+        const type = f.type || 'application/octet-stream';
+        const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('gif') ? 'gif' : type.includes('jpeg') ? 'jpg' : 'bin';
+        return { blob: f, type, ext };
+      }
       if (url.startsWith("data:")) {
         const m = /^data:([^;]+);base64,(.*)$/.exec(url);
         const type = m?.[1] || "application/octet-stream";
@@ -233,7 +238,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       return { blob, type, ext };
     };
     if (m.type === "video") {
-      const { blob, type, ext } = await toBlob(m.url);
+      const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
       const signed = await apiFetch(`/v1/media/video-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
       await uploadWithFallback('product-videos', signed, blob, type);
       let thumbPath: string | undefined;
@@ -247,7 +252,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       }
       await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: signed.path, thumbnail: thumbPath ?? (m.thumbnailUrl && !m.thumbnailUrl.startsWith('data:') ? m.thumbnailUrl : undefined), position: m.position } });
     } else {
-      const { blob, type, ext } = await toBlob(m.url);
+      const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
       const signed = await apiFetch(`/v1/media/image-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
       await uploadWithFallback('product-images', signed, blob, type);
       await apiFetch(`/v1/products/${pid}/images`, { method: "POST", json: { path: signed.path, alt_text: m.alt, position: m.position } });

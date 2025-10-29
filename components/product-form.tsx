@@ -116,10 +116,49 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     customCategory: "",
   };
 
+  const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // ~50MB
+
   const onDropAny = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     onPickFiles(files);
     onPickVideos(files);
+  };
+
+  const generateVideoThumbnail = (file: File): Promise<string | undefined> => {
+    return new Promise((resolve) => {
+      try {
+        const url = URL.createObjectURL(file);
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        video.src = url;
+        video.muted = true;
+        video.playsInline = true as any;
+        const onCleanup = () => { try { URL.revokeObjectURL(url); } catch {} };
+        video.onloadeddata = async () => {
+          try {
+            // Seek a little to avoid black frames
+            video.currentTime = Math.min(0.1, (video.duration || 0) / 2);
+          } catch { /* ignore */ }
+        };
+        video.onseeked = () => {
+          try {
+            const w = Math.min(640, video.videoWidth || 640);
+            const h = Math.max(1, Math.round((video.videoHeight || 360) * (w / (video.videoWidth || 640))));
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (ctx) { ctx.drawImage(video, 0, 0, w, h); }
+            const data = canvas.toDataURL('image/jpeg', 0.82);
+            onCleanup();
+            resolve(data);
+          } catch {
+            onCleanup();
+            resolve(undefined);
+          }
+        };
+        video.onerror = () => { onCleanup(); resolve(undefined); };
+      } catch { resolve(undefined); }
+    });
   };
 
   const onPickMedia = (files: FileList | null) => {
@@ -139,25 +178,21 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     setOpenCycle((c) => c + 1);
   };
 
-  // Videos (mock DataURL)
+  // Videos (object URL + auto thumbnail)
   const onPickVideos = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const toDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = () => resolve(String(fr.result));
-      fr.onerror = () => reject(fr.error);
-      fr.readAsDataURL(file);
-    });
     (async () => {
-      const next: Array<{ id: string; url: string; thumb?: string }> = [];
+      const next: Array<{ id: string; url: string; thumb?: string; file?: File }> = [];
       for (let i = 0; i < files.length; i++) {
         const f = files.item(i);
         if (!f) continue;
         if (!f.type.startsWith("video/")) continue;
+        if (f.size > MAX_VIDEO_BYTES) { toast.error(`Video too large. Max ~50MB.`); continue; }
         if (videoList.length + next.length >= 3) break;
-        let dataUrl: string | undefined = undefined;
-        try { dataUrl = await toDataUrl(f); } catch {}
-        if (dataUrl) next.push({ id: crypto.randomUUID(), url: dataUrl });
+        const objectUrl = URL.createObjectURL(f);
+        let thumb: string | undefined = undefined;
+        try { thumb = await generateVideoThumbnail(f); } catch {}
+        next.push({ id: crypto.randomUUID(), url: objectUrl, thumb, file: f });
       }
       if (next.length) setVideoList((prev) => [...prev, ...next]);
     })();
@@ -239,7 +274,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [thumbTarget, setThumbTarget] = useState<string | null>(null);
   const [openCycle, setOpenCycle] = useState(0);
-  const [videoList, setVideoList] = useState<Array<{ id: string; url: string; thumb?: string }>>([]);
+  const [videoList, setVideoList] = useState<Array<{ id: string; url: string; thumb?: string; file?: File }>>([]);
   const [pendingReview, setPendingReview] = useState(false);
   const imagesSectionRef = useRef<HTMLDivElement>(null);
   const [imagesError, setImagesError] = useState(false);
@@ -824,6 +859,37 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               <input id="brand" {...register("brand")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
             </div>
           </div>
+          {/* Pricing (moved up) */}
+          <div className={`card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm ${invalid.price ? "border-red-300" : ""}`}>
+            <div className="text-sm font-medium mb-2">Pricing</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">{mode === "deal" ? "Regular Price" : "Price"}</label>
+                <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} placeholder="0.00" />
+                {mode === "deal" && typeof price === "number" && typeof discount === "number" && Number.isFinite(price) && Number.isFinite(discount) && (
+                  <p className="text-xs text-neutral-600 mt-1">
+                    Deal price: <span className="font-medium">{formatCurrency(price * (1 - discount / 100))}</span>
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
+                <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} placeholder="1" />
+              </div>
+            </div>
+            {mode === "deal" && (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount % (off regular price)</label>
+                  <input id="discountPercent" type="number" min={1} max={90} {...register("discountPercent", { valueAsNumber: true })} aria-invalid={mode === "deal" && (!dealOk)} className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`} placeholder="e.g. 20" />
+                </div>
+                <div>
+                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="coupon_code">Coupon code (optional)</label>
+                  <input id="coupon_code" {...register("coupon_code")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="e.g. SAVE20" />
+                </div>
+              </div>
+            )}
+          </div>
           <div>
             <label className="block text-sm text-neutral-700 mb-1" htmlFor="category">Category</label>
             <select
@@ -914,7 +980,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                     <span className="inline-flex items-center cursor-grab active:cursor-grabbing" draggable aria-label="Reorder video" aria-grabbed={videoDraggingIdx === idx} onDragStart={onVideoDragStart(idx)} onDragEnd={onVideoDragEnd}>
                       <GripVertical size={12} />
                     </span>
-                    <video src={v.url} className="h-28 w-full rounded border border-neutral-200 object-contain bg-neutral-50" controls />
+                    <video src={v.url} poster={v.thumb} className="h-28 w-full rounded border border-neutral-200 object-contain bg-neutral-50" controls playsInline muted preload="metadata" />
                     {v.thumb ? (
                       <Image src={v.thumb} alt="Thumbnail" width={112} height={112} className="h-28 w-28 object-contain rounded border border-neutral-200 bg-neutral-50" unoptimized />
                     ) : (
@@ -933,25 +999,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             </div>
           </div>
 
-          {/* Pricing */}
-          <div className={`card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm ${invalid.price ? "border-red-300" : ""}`}>
-            <div className="text-sm font-medium mb-2">Pricing</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">{mode === "deal" ? "Regular Price" : "Price"}</label>
-                <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} placeholder="0.00" />
-                {mode === "deal" && typeof price === "number" && typeof discount === "number" && Number.isFinite(price) && Number.isFinite(discount) && (
-                  <p className="text-xs text-neutral-600 mt-1">
-                    Deal price: <span className="font-medium">{formatCurrency(price * (1 - discount / 100))}</span>
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
-                <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} placeholder="1" />
-              </div>
-            </div>
-          </div>
+          {false && (
+            <div className={`card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm ${invalid.price ? "border-red-300" : ""}`}></div>
+          )}
 
           {false && (
             <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm -mt-2"></div>

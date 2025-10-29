@@ -9,6 +9,7 @@ export type Media = {
   alt?: string;
   type: MediaType;
   thumbnailUrl?: string; // for videos, optional custom thumbnail
+  file?: File; // optional: when present, use this Blob for upload (client-only)
 };
 
 export type Variant = {
