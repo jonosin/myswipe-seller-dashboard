@@ -116,7 +116,8 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     customCategory: "",
   };
 
-  const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // ~50MB
+  const MAX_VIDEO_MB = Number(process.env.NEXT_PUBLIC_MAX_VIDEO_MB ?? '100');
+  const MAX_VIDEO_BYTES = MAX_VIDEO_MB * 1024 * 1024; // configurable, default ~100MB
 
   const onDropAny = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -187,12 +188,14 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         const f = files.item(i);
         if (!f) continue;
         if (!f.type.startsWith("video/")) continue;
-        if (f.size > MAX_VIDEO_BYTES) { toast.error(`Video too large. Max ~50MB.`); continue; }
+        if (f.size > MAX_VIDEO_BYTES) { toast.error(`Video too large. Max ~${MAX_VIDEO_MB}MB.`); continue; }
         if (videoList.length + next.length >= 3) break;
         const objectUrl = URL.createObjectURL(f);
         let thumb: string | undefined = undefined;
         try { thumb = await generateVideoThumbnail(f); } catch {}
-        next.push({ id: crypto.randomUUID(), url: objectUrl, thumb, file: f });
+        const id = crypto.randomUUID();
+        next.push({ id, url: objectUrl, thumb, file: f });
+        setMediaOrder((ord) => [...ord, `vid:${id}`]);
       }
       if (next.length) setVideoList((prev) => [...prev, ...next]);
     })();
@@ -275,6 +278,8 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   const [thumbTarget, setThumbTarget] = useState<string | null>(null);
   const [openCycle, setOpenCycle] = useState(0);
   const [videoList, setVideoList] = useState<Array<{ id: string; url: string; thumb?: string; file?: File }>>([]);
+  // Unified order across images and videos. Token format: 'img:<id>' | 'vid:<id>'
+  const [mediaOrder, setMediaOrder] = useState<string[]>([]);
   const [pendingReview, setPendingReview] = useState(false);
   const imagesSectionRef = useRef<HTMLDivElement>(null);
   const [imagesError, setImagesError] = useState(false);
@@ -305,6 +310,14 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     list.forEach((im) => {
       if (im.url && im.url.startsWith("blob:")) {
         try { URL.revokeObjectURL(im.url); } catch {}
+      }
+    });
+  };
+
+  const revokeVideoBlobUrls = (list: Array<{ url: string }>) => {
+    list.forEach((v) => {
+      if (v.url && v.url.startsWith("blob:")) {
+        try { URL.revokeObjectURL(v.url); } catch {}
       }
     });
   };
@@ -361,6 +374,8 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         if (initial.images) {
           setImageList(initial.images.map((u, i) => ({ id: crypto.randomUUID(), url: u, sortOrder: i })));
         }
+        // Initialize unified order (images first, then videos if present later)
+        setMediaOrder([]);
       } else {
         // Create mode: clear everything
         reset(createDefaults);
@@ -369,6 +384,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         setOptions([{ id: crypto.randomUUID(), name: "", values: [] }]);
         setVariantMap({});
         setVideoList([]);
+        setMediaOrder([]);
         setPendingReview(false);
       }
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -376,6 +392,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       setOpenCycle((n) => n + 1);
     } else if (!open && wasOpen) {
       if (imageList.length) revokeBlobUrls(imageList);
+      if (videoList.length) revokeVideoBlobUrls(videoList);
       if (fileInputRef.current) fileInputRef.current.value = "";
       if (videoInputRef.current) videoInputRef.current.value = "";
     }
@@ -396,7 +413,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       if (target?.url?.startsWith("blob:")) {
         try { URL.revokeObjectURL(target.url); } catch {}
       }
-      return prev.filter((_, i) => i !== idx).map((im, i) => ({ ...im, sortOrder: i }));
+      const next = prev.filter((_, i) => i !== idx).map((im, i) => ({ ...im, sortOrder: i }));
+      if (target) setMediaOrder((ord) => ord.filter((t) => t !== `img:${target.id}`));
+      return next;
     });
   };
 
@@ -416,7 +435,10 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         const objectUrl = URL.createObjectURL(f);
         let dataUrl: string | undefined = undefined;
         try { dataUrl = await toDataUrl(f); } catch {}
-        next.push({ id: crypto.randomUUID(), url: objectUrl, dataUrl, sortOrder: imageList.length + next.length });
+        const id = crypto.randomUUID();
+        next.push({ id, url: objectUrl, dataUrl, sortOrder: imageList.length + next.length });
+        // append to unified order
+        setMediaOrder((ord) => [...ord, `img:${id}`]);
       }
       if (next.length) setImageList((prev) => [...prev, ...next]);
     })();
@@ -489,6 +511,45 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     });
   };
 
+  // Combined DnD across images and videos using mediaOrder
+  const mediaDragIndex = useRef<number | null>(null);
+  const [mediaDraggingIdx, setMediaDraggingIdx] = useState<number | null>(null);
+  const onMediaDragStart = (index: number) => (e: React.DragEvent<HTMLElement>) => {
+    mediaDragIndex.current = index;
+    setMediaDraggingIdx(index);
+    e.dataTransfer.effectAllowed = 'move';
+    const handle = e.currentTarget as HTMLElement;
+    const tile = handle.closest('[data-media-tile="1"]') as HTMLElement | null;
+    if (tile && e.dataTransfer.setDragImage) {
+      try { e.dataTransfer.setDragImage(tile, tile.clientWidth / 2, tile.clientHeight / 2); } catch {}
+    }
+  };
+  const onMediaDragEnd = () => { mediaDragIndex.current = null; setMediaDraggingIdx(null); };
+  const onMediaDragOver = (index: number) => (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
+  const onMediaDrop = (index: number) => (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const from = mediaDragIndex.current;
+    mediaDragIndex.current = null;
+    setMediaDraggingIdx(null);
+    if (from == null || from === index) return;
+    setMediaOrder((ord) => {
+      const arr = ord.slice();
+      const [moved] = arr.splice(from, 1);
+      if (!moved) return ord;
+      arr.splice(index, 0, moved);
+      return arr;
+    });
+  };
+
+  const removeVideoAt = (idx: number) => {
+    setVideoList((prev) => {
+      const target = prev[idx];
+      const next = prev.filter((_, i) => i !== idx);
+      if (target) setMediaOrder((ord) => ord.filter((t) => t !== `vid:${target.id}`));
+      return next;
+    });
+  };
+
   const onSubmit = async (values: FormValues) => {
     // Require at least one image OR video on create
     if (!isEdit && imageList.length === 0 && videoList.length === 0) {
@@ -525,12 +586,13 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       position: i,
       type: i === 0 ? "thumbnail" : "image",
     }));
-    const videosPayload: DtoMedia[] = videoList.map((v, i) => ({
+    const videosPayload: any[] = videoList.map((v, i) => ({
       id: v.id,
       url: v.url,
       position: i,
       type: "video",
       thumbnailUrl: v.thumb,
+      file: v.file,
     }));
 
     const payload: ProductCreate = {
@@ -579,8 +641,11 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         onSaved?.(initial as any);
         onOpenChange(false);
       } else {
-        await apiCreateProduct(payload);
-        toast.success("Product added");
+        // Non-blocking create: upload media in background to avoid long waiting
+        void apiCreateProduct(payload)
+          .then(() => { toast.success("Product added and media uploaded"); })
+          .catch((e) => { const msg = String(e?.message || e || ""); toast.error(msg || "Failed to upload media"); });
+        toast.success("Product created. Uploading media in background...");
         onSaved?.(initial as any);
         reset(createDefaults);
         revokeBlobUrls(imageList);
@@ -826,43 +891,58 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             className="mt-4 grid grid-cols-1 gap-4 pb-20"
             aria-label="Product form"
           >
-          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+          <div className="card rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
             <div className="space-y-3">
               <div>
-                <div className="text-sm text-neutral-700 mb-1">Listing mode</div>
-                <div role="group" aria-label="Listing mode" className="flex w-full rounded-md border border-neutral-300 overflow-hidden">
-                  <button type="button" aria-pressed={mode === "discover"} className={`flex-1 px-3 py-1.5 text-sm ${mode === "discover" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "discover", { shouldDirty: true })}>Discover Feed</button>
-                  <button type="button" aria-pressed={mode === "deal"} className={`flex-1 px-3 py-1.5 text-sm border-l border-neutral-300 ${mode === "deal" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "deal", { shouldDirty: true })}>Deal Session</button>
+                <div className="text-sm font-medium text-neutral-800 mb-2">Listing mode</div>
+                <div role="group" aria-label="Listing mode" className="flex w-full rounded-lg border border-neutral-300 overflow-hidden">
+                  <button type="button" aria-pressed={mode === "discover"} className={`flex-1 px-4 py-2 text-sm ${mode === "discover" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "discover", { shouldDirty: true })}>Discover Feed</button>
+                  <button type="button" aria-pressed={mode === "deal"} className={`flex-1 px-4 py-2 text-sm border-l border-neutral-300 ${mode === "deal" ? "bg-black text-white" : "bg-white text-neutral-700"}`} onClick={() => setValue("mode", "deal", { shouldDirty: true })}>Deal Session</button>
                 </div>
               </div>
-              {mode === "deal" && (
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount % (off regular price)</label>
-                  <input id="discountPercent" type="number" min={1} max={90} {...register("discountPercent", { valueAsNumber: true })} aria-invalid={mode === "deal" && (!dealOk)} className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`} placeholder="e.g. 20" />
-                  {mode === "deal" && typeof discount === "number" && discount >= 1 && discount < 20 && (
-                    <p className="text-xs text-neutral-600 mt-1">Tip: Deals under 20% may not attract buyers.</p>
-                  )}
-                  {mode === "deal" && typeof discount === "number" && discount > 90 && (
-                    <p className="text-xs text-red-600 mt-1">Maximum discount is 90%</p>
-                  )}
-                </div>
-              )}
+              {/* Discount input moved to Pricing card for a single source of truth */}
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-neutral-700 mb-1" htmlFor="title">Name</label>
-              <input id="title" {...register("title")} className={`w-full rounded-lg border ${invalid.title ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.title} />
-            </div>
-            <div>
-              <label className="block text-sm text-neutral-700 mb-1" htmlFor="brand">Brand</label>
-              <input id="brand" {...register("brand")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+          {/* Details */}
+          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="text-sm font-medium mb-2">Details</div>
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="title">Name</label>
+                <input id="title" {...register("title")} className={`w-full rounded-lg border ${invalid.title ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.title} />
+              </div>
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="brand">Brand</label>
+                <input id="brand" {...register("brand")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="category">Category</label>
+                <select
+                  id="category"
+                  value={category || ""}
+                  onChange={(e) => setValue("category", e.target.value, { shouldDirty: true })}
+                  className={`w-full rounded-lg border ${invalid.category ? "border-red-500" : "border-neutral-300"} px-3 py-2`}
+                  aria-invalid={!!errors.category}
+                >
+                  <option value="">Select a category</option>
+                  {categoryOptions.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                {category === "Other (Custom)" && (
+                  <input placeholder="Custom category" {...register("customCategory")} className="mt-2 w-full rounded-lg border border-neutral-300 px-3 py-2" />
+                )}
+              </div>
+              <div>
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="description">Description</label>
+                <textarea id="description" {...register("description")} className={`w-full rounded-lg border ${invalid.description ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.description} />
+              </div>
             </div>
           </div>
-          {/* Pricing (moved up) */}
+          {/* Pricing */}
           <div className={`card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm ${invalid.price ? "border-red-300" : ""}`}>
             <div className="text-sm font-medium mb-2">Pricing</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">{mode === "deal" ? "Regular Price" : "Price"}</label>
                 <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} placeholder="0.00" />
@@ -872,48 +952,24 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                   </p>
                 )}
               </div>
-              <div>
-                <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Inventory</label>
-                <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} placeholder="1" />
-              </div>
             </div>
             {mode === "deal" && (
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount % (off regular price)</label>
-                  <input id="discountPercent" type="number" min={1} max={90} {...register("discountPercent", { valueAsNumber: true })} aria-invalid={mode === "deal" && (!dealOk)} className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`} placeholder="e.g. 20" />
-                </div>
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="coupon_code">Coupon code (optional)</label>
-                  <input id="coupon_code" {...register("coupon_code")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="e.g. SAVE20" />
-                </div>
+              <div className="mt-3">
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount % (off regular price)</label>
+                <input id="discountPercent" type="number" min={1} max={90} {...register("discountPercent", { valueAsNumber: true })} aria-invalid={mode === "deal" && (!dealOk)} className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`} placeholder="e.g. 20" />
               </div>
             )}
           </div>
-          <div>
-            <label className="block text-sm text-neutral-700 mb-1" htmlFor="category">Category</label>
-            <select
-              id="category"
-              value={category || ""}
-              onChange={(e) => setValue("category", e.target.value, { shouldDirty: true })}
-              className={`w-full rounded-lg border ${invalid.category ? "border-red-500" : "border-neutral-300"} px-3 py-2`}
-              aria-invalid={!!errors.category}
-            >
-              <option value="">Select a category</option>
-              {categoryOptions.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            {category === "Other (Custom)" && (
-              <input placeholder="Custom category" {...register("customCategory")} className="mt-2 w-full rounded-lg border border-neutral-300 px-3 py-2" />
-            )}
-          </div>
-          <div className="sm:col-span-2 mt-4">
-            <label className="block text-sm text-neutral-700 mb-1" htmlFor="description">Description</label>
-            <textarea id="description" {...register("description")} className={`w-full rounded-lg border ${invalid.description ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.description} />
+          {/* Inventory */}
+          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="text-sm font-medium mb-2">Inventory</div>
+            <div>
+              <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Available quantity</label>
+              <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} placeholder="1" />
+            </div>
           </div>
 
-          {/* Media (top) */}
+          {/* Media */}
           <div ref={imagesSectionRef} id="imagesTop" className={`${imagesError ? "border-red-300" : "border-neutral-200"} card rounded-xl border bg-white p-4 shadow-sm`} onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); onDropAny(e.dataTransfer.files); }}>
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Images / Videos</span>
@@ -939,63 +995,58 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                 <button type="button" onClick={() => mediaInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload media</button>
               </div>
             </div>
-            {(imageList.length === 0 && videoList.length === 0) && (
+            {(mediaOrder.length === 0) && (
               <div className="mt-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-6 text-center">
                 <div className="text-sm text-neutral-600">Drag and drop images or videos here</div>
               </div>
             )}
-            <div
-              className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2"
-              onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
-              onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files) onPickFiles(e.dataTransfer.files); }}
-            >
-              {imageList.map((im, idx) => (
-                <div key={im.id} data-image-tile="1" className={`relative group border border-neutral-200 rounded-md overflow-hidden ${draggingIdx === idx ? "ring-2 ring-black/20" : ""}`} onDragOver={onImageDragOver(idx)} onDrop={onImageDrop(idx)}>
-                  <div className="absolute left-1 top-1 inline-flex items-center gap-1 rounded bg-white/90 border border-neutral-300 px-1 text-[11px]">
-                    <span
-                      className="inline-flex items-center cursor-grab active:cursor-grabbing"
-                      draggable
-                      aria-label="Reorder image"
-                      aria-grabbed={draggingIdx === idx}
-                      onDragStart={onImageDragStart(idx)}
-                      onDragEnd={onImageDragEnd}
-                    >
-                      <GripVertical size={12} />
-                    </span>
-                    {idx === 0 && <span>Primary</span>}
-                  </div>
-                  <Image src={im.dataUrl || im.url} alt={im.alt || "Product"} width={448} height={112} className="h-28 w-full object-contain bg-neutral-50" unoptimized />
-                  <button type="button" onClick={() => onRemoveImage(idx)} className="absolute right-1 top-1 rounded bg-white/90 border border-neutral-300 px-1 text-xs">Remove</button>
-                </div>
-              ))}
-              {imageList.length === 0 && (
-                <div className="text-sm text-neutral-600">No images uploaded</div>
-              )}
-            </div>
-            {/* Videos grid */}
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {videoList.map((v, idx) => (
-                <div key={v.id} className={`relative border border-neutral-200 rounded-md p-2 ${videoDraggingIdx === idx ? "ring-2 ring-black/20" : ""}`} onDragOver={onVideoDragOver(idx)} onDrop={onVideoDrop(idx)}>
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center cursor-grab active:cursor-grabbing" draggable aria-label="Reorder video" aria-grabbed={videoDraggingIdx === idx} onDragStart={onVideoDragStart(idx)} onDragEnd={onVideoDragEnd}>
-                      <GripVertical size={12} />
-                    </span>
-                    <video src={v.url} poster={v.thumb} className="h-28 w-full rounded border border-neutral-200 object-contain bg-neutral-50" controls playsInline muted preload="metadata" />
-                    {v.thumb ? (
-                      <Image src={v.thumb} alt="Thumbnail" width={112} height={112} className="h-28 w-28 object-contain rounded border border-neutral-200 bg-neutral-50" unoptimized />
-                    ) : (
-                      <div className="h-28 w-28 rounded border border-dashed border-neutral-300 flex items-center justify-center text-xs text-neutral-500">No thumbnail</div>
-                    )}
-                  </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => { setThumbTarget(v.id); thumbInputRef.current?.click(); }}>Set thumbnail</button>
-                    <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => setVideoList((prev) => prev.filter((_, i) => i !== idx))}>Remove</button>
-                  </div>
-                </div>
-              ))}
-              {videoList.length === 0 && (
-                <div className="text-sm text-neutral-600">No videos uploaded</div>
-              )}
+            {/* Unified media grid */}
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {mediaOrder.map((token, idx) => {
+                if (token.startsWith('img:')) {
+                  const id = token.slice(4);
+                  const im = imageList.find(i => i.id === id);
+                  if (!im) return null;
+                  const firstImgId = mediaOrder.find(t => t.startsWith('img:'))?.slice(4);
+                  return (
+                    <div key={token} data-media-tile="1" className={`relative group border border-neutral-200 rounded-md overflow-hidden ${mediaDraggingIdx === idx ? 'ring-2 ring-black/20' : ''}`} onDragOver={onMediaDragOver(idx)} onDrop={onMediaDrop(idx)}>
+                      <div className="absolute left-1 top-1 inline-flex items-center gap-1 rounded bg-white/90 border border-neutral-300 px-1 text-[11px]">
+                        <span className="inline-flex items-center cursor-grab active:cursor-grabbing" draggable aria-label="Reorder media" aria-grabbed={mediaDraggingIdx === idx} onDragStart={onMediaDragStart(idx)} onDragEnd={onMediaDragEnd}>
+                          <GripVertical size={12} />
+                        </span>
+                        {firstImgId === im.id && <span>Primary</span>}
+                      </div>
+                      <Image src={im.dataUrl || im.url} alt={im.alt || 'Product'} width={448} height={112} className="h-28 w-full object-contain bg-neutral-50" unoptimized />
+                      <button type="button" onClick={() => { const ix = imageList.findIndex(x => x.id === im.id); if (ix >= 0) onRemoveImage(ix); }} className="absolute right-1 top-1 rounded bg-white/90 border border-neutral-300 px-1 text-xs">Remove</button>
+                    </div>
+                  );
+                }
+                if (token.startsWith('vid:')) {
+                  const id = token.slice(4);
+                  const v = videoList.find(vv => vv.id === id);
+                  if (!v) return null;
+                  return (
+                    <div key={token} data-media-tile="1" className={`relative group border border-neutral-200 rounded-md p-2 ${mediaDraggingIdx === idx ? 'ring-2 ring-black/20' : ''}`} onDragOver={onMediaDragOver(idx)} onDrop={onMediaDrop(idx)}>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center cursor-grab active:cursor-grabbing" draggable aria-label="Reorder media" aria-grabbed={mediaDraggingIdx === idx} onDragStart={onMediaDragStart(idx)} onDragEnd={onMediaDragEnd}>
+                          <GripVertical size={12} />
+                        </span>
+                        <video src={v.url} poster={v.thumb} className="h-28 w-full rounded border border-neutral-200 object-contain bg-neutral-50" controls playsInline muted preload="metadata" />
+                        {v.thumb ? (
+                          <Image src={v.thumb} alt="Thumbnail" width={112} height={112} className="h-28 w-28 object-contain rounded border border-neutral-200 bg-neutral-50" unoptimized />
+                        ) : (
+                          <div className="h-28 w-28 rounded border border-dashed border-neutral-300 flex items-center justify-center text-xs text-neutral-500">No thumbnail</div>
+                        )}
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => { setThumbTarget(v.id); thumbInputRef.current?.click(); }}>Set thumbnail</button>
+                        <button type="button" className="rounded-md border border-neutral-300 px-2 py-1 text-sm" onClick={() => { const ix = videoList.findIndex(x => x.id === v.id); if (ix >= 0) removeVideoAt(ix); }}>Remove</button>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })}
             </div>
           </div>
 
