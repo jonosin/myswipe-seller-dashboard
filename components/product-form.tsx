@@ -1030,6 +1030,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                   if (!v) return null;
                   return (
                     <div key={token} data-media-tile="1" className={`relative group border border-neutral-200 rounded-md p-2 ${mediaDraggingIdx === idx ? 'ring-2 ring-black/20' : ''}`} onDragOver={onMediaDragOver(idx)} onDrop={onMediaDrop(idx)}>
+                      <div className="absolute left-1 top-1 inline-flex items-center gap-1 rounded bg-white/90 border border-neutral-300 px-1 text-[11px]">
+                        {idx === 0 && <span>First</span>}
+                      </div>
                       <div className="flex items-center gap-2">
                         <span className="inline-flex items-center cursor-grab active:cursor-grabbing" draggable aria-label="Reorder media" aria-grabbed={mediaDraggingIdx === idx} onDragStart={onMediaDragStart(idx)} onDragEnd={onMediaDragEnd}>
                           <GripVertical size={12} />
