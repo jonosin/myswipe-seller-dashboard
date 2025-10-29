@@ -393,6 +393,11 @@ export default function ProductsPage() {
                 coupon_code: (full as any).coupon_code || "",
                 is_swipe_hour: !!(full as any).is_swipe_hour,
               } as Product;
+              // Pass through raw media for edit modal hydration
+              (mapped as any)._fullMedia = {
+                images: (full.images || []).slice().sort((a: any,b: any)=>a.position-b.position),
+                videos: (full.videos || []).slice().sort((a: any,b: any)=>a.position-b.position),
+              };
               setEditProduct(mapped);
               setOpenForm(true);
             } catch (e) {

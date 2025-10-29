@@ -371,11 +371,19 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           customCategory: "",
         };
         reset(editDefaults);
-        if (initial.images) {
-          setImageList(initial.images.map((u, i) => ({ id: crypto.randomUUID(), url: u, sortOrder: i })));
-        }
-        // Initialize unified order (images first, then videos if present later)
-        setMediaOrder([]);
+        // Build image tiles
+        const imgs = (initial.images || []).map((u, i) => ({ id: crypto.randomUUID(), url: u, sortOrder: i }));
+        setImageList(imgs);
+        // Build video tiles from full media when provided
+        const full = (initial as any)._fullMedia as { images?: Array<{ url: string; position: number }>; videos?: Array<{ url: string; thumbnail?: string | null; position: number }> } | undefined;
+        const vids = (full?.videos || []).map((v, i) => ({ id: crypto.randomUUID(), url: v.url, thumb: v.thumbnail || undefined }));
+        setVideoList(vids);
+        // Initialize unified order (images first then videos)
+        const tokens: string[] = [
+          ...imgs.map((im) => `img:${im.id}`),
+          ...vids.map((vv) => `vid:${vv.id}`)
+        ];
+        setMediaOrder(tokens);
       } else {
         // Create mode: clear everything
         reset(createDefaults);
@@ -651,11 +659,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         onSaved?.(initial as any);
         onOpenChange(false);
       } else {
-        // Non-blocking create: upload media in background to avoid long waiting
-        void apiCreateProduct(payload)
-          .then(() => { toast.success("Product added and media uploaded"); })
-          .catch((e) => { const msg = String(e?.message || e || ""); toast.error(msg || "Failed to upload media"); });
-        toast.success("Product created. Uploading media in background...");
+        // Blocking create: wait for media uploads to finish to ensure reliability
+        await apiCreateProduct(payload);
+        toast.success("Product added and media uploaded");
         onSaved?.(initial as any);
         reset(createDefaults);
         revokeBlobUrls(imageList);
