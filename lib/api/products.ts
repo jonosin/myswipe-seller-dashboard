@@ -127,8 +127,9 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
 
 export async function getProduct(id: string): Promise<Product> {
   const dto = await apiFetch(`/v1/products/${id}`);
-  const images = (dto.images || []).map((m: any) => ({ id: m.id, url: publicImage(m.url), position: m.position, alt: m.alt_text }));
-  const videos = (dto.videos || []).map((v: any) => ({ id: v.id, url: publicVideo(v.url), position: v.position, alt: undefined, type: "video", thumbnailUrl: publicImage(v.thumbnail || undefined) }));
+  // Backend already returns public URLs for images/videos in dto
+  const images = (dto.images || []).map((m: any) => ({ id: m.id, url: m.url, position: m.position, alt: m.alt_text }));
+  const videos = (dto.videos || []).map((v: any) => ({ id: v.id, url: v.url, position: v.position, alt: undefined, type: "video", thumbnailUrl: v.thumbnail || undefined }));
   const variants = (dto.variants || []).map((v: any) => ({ id: v.id, size: v.size || undefined, color: v.color || undefined, sku: v.sku || undefined, price_override_minor: v.price_minor ?? undefined, stock: v.stock ?? 0, active: !!v.active, title: v.title || undefined }));
   const out: Product = {
     id: dto.id,
