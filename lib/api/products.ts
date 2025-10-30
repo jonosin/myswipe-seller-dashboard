@@ -200,7 +200,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       const ac = new AbortController();
       const to = setTimeout(() => ac.abort('timeout'), ms);
       try {
-        const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob, signal: ac.signal });
+        const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type }, body: blob, signal: ac.signal });
         if (!resp.ok) {
           let t = '';
           try { t = await resp.text(); } catch {}
@@ -317,11 +317,11 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
       deal_price_minor: input.deal_price_minor,
     }});
   }
-  const putWithTimeout = async (url: string, blob: Blob, type: string, ms = 120_000): Promise<void> => {
+  const postWithTimeout = async (url: string, blob: Blob, type: string, ms = 120_000): Promise<void> => {
     const ac = new AbortController();
     const to = setTimeout(() => ac.abort('timeout'), ms);
     try {
-      const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob, signal: ac.signal });
+      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': type }, body: blob, signal: ac.signal });
       if (!resp.ok) {
         let t = '';
         try { t = await resp.text(); } catch {}
@@ -331,24 +331,29 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
       clearTimeout(to);
     }
   };
+  const withTimeout = async <T,>(p: Promise<T>, ms: number, label='op'): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+      p.then((v) => { clearTimeout(t); resolve(v); }).catch((e) => { clearTimeout(t); reject(e); });
+    });
+  };
   const uploadWithFallback = async (
     bucket: 'product-images' | 'product-videos',
     signed: { path: string; token: string; uploadUrl: string },
     blob: Blob,
     type: string
   ) => {
-    let lastErr: any;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try { await putWithTimeout(signed.uploadUrl, blob, type, Math.min(180_000, 60_000 * attempt)); return; } catch (e) { lastErr = e; }
-    }
     try {
-      const up = await supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
+      const up = await withTimeout(supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true }), 180_000, 'supabase upload');
       if ((up as any)?.error) throw new Error((up as any).error.message || 'Upload failed');
       return;
-    } catch (e) {
-      lastErr = e;
+    } catch (sdkErr) {
+      let lastErr: any = sdkErr;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try { await postWithTimeout(signed.uploadUrl, blob, type, Math.min(180_000, 60_000 * attempt)); return; } catch (e) { lastErr = e; }
+      }
+      await postWithTimeout(signed.uploadUrl, blob, type, 240_000).catch((e) => { throw lastErr || e; });
     }
-    await putWithTimeout(signed.uploadUrl, blob, type, 240_000).catch((e) => { throw lastErr || e; });
   };
   // Attach newly added media (skip existing remote URLs)
   const isNewImage = (m: any) => typeof m?.url === 'string' && (m.url.startsWith('data:') || m.url.startsWith('blob:'));
@@ -360,7 +365,7 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
   const toBlob = async (url: string, f?: File | Blob): Promise<{ blob: Blob, type: string, ext: string }> => {
     if (f instanceof Blob) {
       const type = f.type || 'application/octet-stream';
-      const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('gif') ? 'gif' : type.includes('jpeg') ? 'jpg' : 'bin';
+      const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('quicktime') ? 'mov' : type.includes('gif') ? 'gif' : type.includes('jpeg') ? 'jpg' : 'bin';
       return { blob: f, type, ext };
     }
     if (url.startsWith('data:')) {
@@ -378,7 +383,7 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
     const resp = await fetch(url);
     const blob = await resp.blob();
     const type = blob.type || 'application/octet-stream';
-    const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('gif') ? 'gif' : 'jpg';
+    const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('quicktime') ? 'mov' : type.includes('gif') ? 'gif' : 'jpg';
     return { blob, type, ext };
   };
   for (let i = 0; i < newImgs.length; i++) {
