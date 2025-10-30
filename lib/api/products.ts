@@ -196,29 +196,56 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     }});
   }
   const uploadMedia = async (m: Media) => {
+    const putWithTimeout = async (url: string, blob: Blob, type: string, ms = 120_000): Promise<void> => {
+      const ac = new AbortController();
+      const to = setTimeout(() => ac.abort('timeout'), ms);
+      try {
+        const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob, signal: ac.signal });
+        if (!resp.ok) {
+          let t = '';
+          try { t = await resp.text(); } catch {}
+          throw new Error(t || `Upload failed (${resp.status})`);
+        }
+      } finally {
+        clearTimeout(to);
+      }
+    };
+    const withTimeout = async <T,>(p: Promise<T>, ms: number, label='op'): Promise<T> => {
+      return new Promise<T>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+        p.then((v) => { clearTimeout(t); resolve(v); }).catch((e) => { clearTimeout(t); reject(e); });
+      });
+    };
     const uploadWithFallback = async (
       bucket: 'product-images' | 'product-videos',
       signed: { path: string; token: string; uploadUrl: string },
       blob: Blob,
       type: string
     ) => {
+      // SDK first (handles Supabase signed uploads reliably), then raw PUT fallback
       try {
-        const up = await supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
+        const up = await withTimeout(supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true }), 180_000, 'supabase upload');
         if ((up as any)?.error) throw new Error((up as any).error.message || 'Upload failed');
-      } catch (e) {
-        // Fallback to raw PUT to signedUrl
-        const resp = await fetch(signed.uploadUrl, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob });
-        if (!resp.ok) {
-          let t = '';
-          try { t = await resp.text(); } catch {}
-          throw new Error(t || `Upload failed (${resp.status})`);
+        return;
+      } catch (sdkErr) {
+        let lastErr: any = sdkErr;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try { await putWithTimeout(signed.uploadUrl, blob, type, Math.min(180_000, 60_000 * attempt)); return; } catch (e) { lastErr = e; }
         }
+        // Final attempt
+        await putWithTimeout(signed.uploadUrl, blob, type, 240_000).catch((e) => { throw lastErr || e; });
       }
     };
     const toBlob = async (url: string, f?: File | Blob): Promise<{ blob: Blob, type: string, ext: string }> => {
       if (f instanceof Blob) {
         const type = f.type || 'application/octet-stream';
-        const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('gif') ? 'gif' : type.includes('jpeg') ? 'jpg' : 'bin';
+        const ext = type.includes('png') ? 'png'
+          : type.includes('webm') ? 'webm'
+          : type.includes('mp4') ? 'mp4'
+          : type.includes('quicktime') ? 'mov'
+          : type.includes('gif') ? 'gif'
+          : type.includes('jpeg') ? 'jpg'
+          : 'bin';
         return { blob: f, type, ext };
       }
       if (url.startsWith("data:")) {
@@ -235,7 +262,11 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       const resp = await fetch(url);
       const blob = await resp.blob();
       const type = blob.type || "application/octet-stream";
-      const ext = type.includes("png") ? "png" : type.includes("webm") ? "webm" : type.includes("mp4") ? "mp4" : type.includes("gif") ? "gif" : "jpg";
+      const ext = type.includes("png") ? "png"
+        : type.includes("webm") ? "webm"
+        : type.includes("mp4") ? "mp4"
+        : type.includes("quicktime") ? "mov"
+        : type.includes("gif") ? "gif" : "jpg";
       return { blob, type, ext };
     };
     if (m.type === "video") {
@@ -286,8 +317,94 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
       deal_price_minor: input.deal_price_minor,
     }});
   }
-  const full = await getProduct(id);
-  return full;
+  const putWithTimeout = async (url: string, blob: Blob, type: string, ms = 120_000): Promise<void> => {
+    const ac = new AbortController();
+    const to = setTimeout(() => ac.abort('timeout'), ms);
+    try {
+      const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob, signal: ac.signal });
+      if (!resp.ok) {
+        let t = '';
+        try { t = await resp.text(); } catch {}
+        throw new Error(t || `Upload failed (${resp.status})`);
+      }
+    } finally {
+      clearTimeout(to);
+    }
+  };
+  const uploadWithFallback = async (
+    bucket: 'product-images' | 'product-videos',
+    signed: { path: string; token: string; uploadUrl: string },
+    blob: Blob,
+    type: string
+  ) => {
+    let lastErr: any;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try { await putWithTimeout(signed.uploadUrl, blob, type, Math.min(180_000, 60_000 * attempt)); return; } catch (e) { lastErr = e; }
+    }
+    try {
+      const up = await supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
+      if ((up as any)?.error) throw new Error((up as any).error.message || 'Upload failed');
+      return;
+    } catch (e) {
+      lastErr = e;
+    }
+    await putWithTimeout(signed.uploadUrl, blob, type, 240_000).catch((e) => { throw lastErr || e; });
+  };
+  // Attach newly added media (skip existing remote URLs)
+  const isNewImage = (m: any) => typeof m?.url === 'string' && (m.url.startsWith('data:') || m.url.startsWith('blob:'));
+  const isNewVideo = (v: any) => (v?.file instanceof Blob) || (typeof v?.url === 'string' && (v.url.startsWith('blob:') || v.url.startsWith('data:')));
+  const imgs: any[] = Array.isArray((input as any).images) ? (input as any).images : [];
+  const vids: any[] = Array.isArray((input as any).videos) ? (input as any).videos : [];
+  const newImgs = imgs.filter(isNewImage);
+  const newVids = vids.filter(isNewVideo);
+  const toBlob = async (url: string, f?: File | Blob): Promise<{ blob: Blob, type: string, ext: string }> => {
+    if (f instanceof Blob) {
+      const type = f.type || 'application/octet-stream';
+      const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('gif') ? 'gif' : type.includes('jpeg') ? 'jpg' : 'bin';
+      return { blob: f, type, ext };
+    }
+    if (url.startsWith('data:')) {
+      const m = /^data:([^;]+);base64,(.*)$/.exec(url);
+      const type = m?.[1] || 'application/octet-stream';
+      const b64 = m?.[2] || '';
+      const bin = typeof atob !== 'undefined' ? atob(b64) : Buffer.from(b64, 'base64').toString('binary');
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const blob = new Blob([arr], { type });
+      const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('gif') ? 'gif' : 'jpg';
+      return { blob, type, ext };
+    }
+    // blob: URL
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    const type = blob.type || 'application/octet-stream';
+    const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('gif') ? 'gif' : 'jpg';
+    return { blob, type, ext };
+  };
+  for (let i = 0; i < newImgs.length; i++) {
+    const im = newImgs[i];
+    const { blob, type, ext } = await toBlob(im.url);
+    const signed = await apiFetch(`/v1/media/image-signed-url`, { method: 'POST', json: { fileName: `upload.${ext}`, contentType: type, productId: id } });
+    await uploadWithFallback('product-images', signed, blob, type);
+    await apiFetch(`/v1/products/${id}/images`, { method: 'POST', json: { path: signed.path, alt_text: im.alt, position: im.position ?? i } });
+  }
+  for (let i = 0; i < newVids.length; i++) {
+    const v = newVids[i];
+    const { blob, type, ext } = await toBlob(v.url, v.file);
+    const signed = await apiFetch(`/v1/media/video-signed-url`, { method: 'POST', json: { fileName: `upload.${ext}`, contentType: type, productId: id } });
+    await uploadWithFallback('product-videos', signed, blob, type);
+    let thumbPath: string | undefined;
+    if (v.thumbnailUrl && v.thumbnailUrl.startsWith('data:')) {
+      try {
+        const t = await toBlob(v.thumbnailUrl);
+        const thumbSigned = await apiFetch(`/v1/media/image-signed-url`, { method: 'POST', json: { fileName: `thumb.${t.ext}`, contentType: t.type, productId: id } });
+        await uploadWithFallback('product-images', thumbSigned, t.blob, t.type);
+        thumbPath = thumbSigned.path as string;
+      } catch {}
+    }
+    await apiFetch(`/v1/products/${id}/videos`, { method: 'POST', json: { path: signed.path, thumbnail: thumbPath ?? (v.thumbnailUrl && !v.thumbnailUrl.startsWith('data:') ? v.thumbnailUrl : undefined), position: v.position ?? i } });
+  }
+  return await getProduct(id);
 }
 
 export async function submitProductForReview(id: string): Promise<{ id: string; status: "pending_review" }> {
