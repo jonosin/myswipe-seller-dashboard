@@ -17,7 +17,7 @@ export async function apiFetch(path: string, init?: RequestInit & { json?: any }
   if (token) headers.Authorization = `Bearer ${token}`;
   if (ADMIN_SECRET) headers["X-Admin-Secret"] = ADMIN_SECRET;
 
-  const DEFAULT_TIMEOUT_MS = Number((process.env as any).NEXT_PUBLIC_API_TIMEOUT_MS || 60000);
+  const DEFAULT_TIMEOUT_MS = Number((process.env as any).NEXT_PUBLIC_API_TIMEOUT_MS || 120000);
   const ac = new AbortController();
   const to = setTimeout(() => ac.abort(new Error("timeout")), Math.max(1000, DEFAULT_TIMEOUT_MS));
   let res: Response;

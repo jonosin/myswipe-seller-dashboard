@@ -200,7 +200,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       const ac = new AbortController();
       const to = setTimeout(() => ac.abort('timeout'), ms);
       try {
-        const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob, signal: ac.signal });
+        const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type }, body: blob, signal: ac.signal });
         if (!resp.ok) {
           let t = '';
           try { t = await resp.text(); } catch {}
