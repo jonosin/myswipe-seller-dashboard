@@ -276,7 +276,19 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
       const signed = await apiFetch(`/v1/media/video-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
       await uploadWithFallback('product-videos', signed, blob, type);
-      let thumbPath: string | undefined;
+      
+      // Process video to normalize color space (fixes brightness/color issues)
+      const processed = await apiFetch(`/v1/media/process-video`, { 
+        method: "POST", 
+        json: { 
+          path: signed.path, 
+          productId: pid,
+          generateThumbnail: !m.thumbnailUrl || m.thumbnailUrl.startsWith('data:') 
+        } 
+      });
+      
+      let thumbPath: string | undefined = processed.thumbnail;
+      // Override with manual thumbnail if provided
       if (m.thumbnailUrl && m.thumbnailUrl.startsWith('data:')) {
         try {
           const t = await toBlob(m.thumbnailUrl);
@@ -285,7 +297,8 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
           thumbPath = thumbSigned.path as string;
         } catch {}
       }
-      await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: signed.path, thumbnail: thumbPath ?? (m.thumbnailUrl && !m.thumbnailUrl.startsWith('data:') ? m.thumbnailUrl : undefined), position: m.position } });
+      
+      await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: processed.path, thumbnail: thumbPath ?? (m.thumbnailUrl && !m.thumbnailUrl.startsWith('data:') ? m.thumbnailUrl : undefined), position: m.position } });
     } else {
       const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
       const signed = await apiFetch(`/v1/media/image-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
@@ -401,7 +414,19 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
     const { blob, type, ext } = await toBlob(v.url, v.file);
     const signed = await apiFetch(`/v1/media/video-signed-url`, { method: 'POST', json: { fileName: `upload.${ext}`, contentType: type, productId: id } });
     await uploadWithFallback('product-videos', signed, blob, type);
-    let thumbPath: string | undefined;
+    
+    // Process video to normalize color space (fixes brightness/color issues)
+    const processed = await apiFetch(`/v1/media/process-video`, { 
+      method: 'POST', 
+      json: { 
+        path: signed.path, 
+        productId: id,
+        generateThumbnail: !v.thumbnailUrl || v.thumbnailUrl.startsWith('data:') 
+      } 
+    });
+    
+    let thumbPath: string | undefined = processed.thumbnail;
+    // Override with manual thumbnail if provided
     if (v.thumbnailUrl && v.thumbnailUrl.startsWith('data:')) {
       try {
         const t = await toBlob(v.thumbnailUrl);
@@ -410,7 +435,8 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
         thumbPath = thumbSigned.path as string;
       } catch {}
     }
-    await apiFetch(`/v1/products/${id}/videos`, { method: 'POST', json: { path: signed.path, thumbnail: thumbPath ?? (v.thumbnailUrl && !v.thumbnailUrl.startsWith('data:') ? v.thumbnailUrl : undefined), position: v.position ?? i } });
+    
+    await apiFetch(`/v1/products/${id}/videos`, { method: 'POST', json: { path: processed.path, thumbnail: thumbPath ?? (v.thumbnailUrl && !v.thumbnailUrl.startsWith('data:') ? v.thumbnailUrl : undefined), position: v.position ?? i } });
   }
   return await getProduct(id);
 }
