@@ -346,6 +346,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   useEffect(() => {
     const wasOpen = prevOpenRef.current;
     if (open && !wasOpen) {
+      try { toast.message("Heads up: video uploads can take up to a minute after you save. Please wait."); } catch {}
       if (isEdit && initial) {
         const editDefaults: FormValues = {
           title: initial.title,
