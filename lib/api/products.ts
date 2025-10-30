@@ -200,7 +200,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       const ac = new AbortController();
       const to = setTimeout(() => ac.abort('timeout'), ms);
       try {
-        const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type }, body: blob, signal: ac.signal });
+        const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob, signal: ac.signal });
         if (!resp.ok) {
           let t = '';
           try { t = await resp.text(); } catch {}
@@ -222,9 +222,13 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       blob: Blob,
       type: string
     ) => {
-      // SDK first (handles Supabase signed uploads reliably), then raw PUT fallback
+      // SDK first (reliable content-type + auth), then raw PUT fallback with retries
       try {
-        const up = await withTimeout(supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true }), 180_000, 'supabase upload');
+        const up = await withTimeout(
+          supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true }),
+          180_000,
+          'supabase upload'
+        );
         if ((up as any)?.error) throw new Error((up as any).error.message || 'Upload failed');
         return;
       } catch (sdkErr) {
@@ -232,7 +236,6 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
         for (let attempt = 1; attempt <= 2; attempt++) {
           try { await putWithTimeout(signed.uploadUrl, blob, type, Math.min(180_000, 60_000 * attempt)); return; } catch (e) { lastErr = e; }
         }
-        // Final attempt
         await putWithTimeout(signed.uploadUrl, blob, type, 240_000).catch((e) => { throw lastErr || e; });
       }
     };
@@ -317,11 +320,11 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
       deal_price_minor: input.deal_price_minor,
     }});
   }
-  const postWithTimeout = async (url: string, blob: Blob, type: string, ms = 120_000): Promise<void> => {
+  const putWithTimeout = async (url: string, blob: Blob, type: string, ms = 120_000): Promise<void> => {
     const ac = new AbortController();
     const to = setTimeout(() => ac.abort('timeout'), ms);
     try {
-      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': type }, body: blob, signal: ac.signal });
+      const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob, signal: ac.signal });
       if (!resp.ok) {
         let t = '';
         try { t = await resp.text(); } catch {}
@@ -350,9 +353,9 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
     } catch (sdkErr) {
       let lastErr: any = sdkErr;
       for (let attempt = 1; attempt <= 2; attempt++) {
-        try { await postWithTimeout(signed.uploadUrl, blob, type, Math.min(180_000, 60_000 * attempt)); return; } catch (e) { lastErr = e; }
+        try { await putWithTimeout(signed.uploadUrl, blob, type, Math.min(180_000, 60_000 * attempt)); return; } catch (e) { lastErr = e; }
       }
-      await postWithTimeout(signed.uploadUrl, blob, type, 240_000).catch((e) => { throw lastErr || e; });
+      await putWithTimeout(signed.uploadUrl, blob, type, 240_000).catch((e) => { throw lastErr || e; });
     }
   };
   // Attach newly added media (skip existing remote URLs)
