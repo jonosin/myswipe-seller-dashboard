@@ -636,6 +636,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       is_swipe_hour: !!values.is_swipe_hour,
     } as unknown as ProductCreate; // cast to allow created_at omission by API
 
+    const tId = toast.loading("Uploading media... This may take up to a minute for videos. Please wait.");
     try {
       if (isEdit && initial) {
         const patch: ProductUpdate = {
@@ -655,13 +656,13 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           videos: payload.videos,
         } as ProductUpdate;
         await apiUpdateProduct(initial.id, { ...(patch as any), external_url: values.external_url, coupon_code: values.coupon_code || null, is_swipe_hour: !!values.is_swipe_hour } as any);
-        toast.success("Product updated");
+        toast.success("Product updated", { id: tId });
         onSaved?.(initial as any);
         onOpenChange(false);
       } else {
         // Blocking create: wait for media uploads to finish to ensure reliability
         await apiCreateProduct(payload);
-        toast.success("Product added and media uploaded");
+        toast.success("Product added and media uploaded", { id: tId });
         onSaved?.(initial as any);
         reset(createDefaults);
         revokeBlobUrls(imageList);
@@ -671,7 +672,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       }
     } catch (e: any) {
       const msg = String(e?.message || e || "");
-      toast.error(msg || "Failed to save product");
+      toast.error(msg || "Failed to save product", { id: tId });
     }
   };
 
