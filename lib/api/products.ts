@@ -214,9 +214,25 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       }
     };
     const toBlob = async (url: string, f?: File | Blob): Promise<{ blob: Blob, type: string, ext: string }> => {
+      const extFromType = (type: string): string => {
+        const t = (type || '').toLowerCase();
+        if (t.includes('png')) return 'png';
+        if (t.includes('jpeg') || t.includes('jpg')) return 'jpg';
+        if (t.includes('gif')) return 'gif';
+        if (t.includes('webp')) return 'webp';
+        if (t.includes('webm')) return 'webm';
+        if (t.includes('mp4')) return 'mp4';
+        if (t.includes('quicktime')) return 'mov'; // iPhone MOV
+        if (t.startsWith('video/')) {
+          const sub = t.split('/')[1] || '';
+          if (sub) return sub.replace(/[^a-z0-9]/g, '');
+          return 'mp4';
+        }
+        return 'bin';
+      };
       if (f instanceof Blob) {
         const type = f.type || 'application/octet-stream';
-        const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('gif') ? 'gif' : type.includes('jpeg') ? 'jpg' : 'bin';
+        const ext = extFromType(type);
         return { blob: f, type, ext };
       }
       if (url.startsWith("data:")) {
@@ -233,7 +249,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       const resp = await fetch(url);
       const blob = await resp.blob();
       const type = blob.type || "application/octet-stream";
-      const ext = type.includes("png") ? "png" : type.includes("webm") ? "webm" : type.includes("mp4") ? "mp4" : type.includes("gif") ? "gif" : "jpg";
+      const ext = extFromType(type);
       return { blob, type, ext };
     };
     if (m.type === "video") {
