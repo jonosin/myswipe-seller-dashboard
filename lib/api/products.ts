@@ -124,7 +124,8 @@ export async function getProduct(id: string): Promise<Product> {
   const dto = await apiFetch(`/v1/products/${id}`);
   // Backend already returns public URLs for images/videos in dto
   const images = (dto.images || []).map((m: any) => ({ id: m.id, url: m.url, position: m.position, alt: m.alt_text }));
-  const videos = (dto.videos || []).map((v: any) => ({ id: v.id, url: v.url, position: v.position, alt: undefined, type: "video", thumbnailUrl: v.thumbnail || undefined }));
+  const dtoVideos: any[] = Array.isArray(dto.videos) ? dto.videos : [];
+  const videos = dtoVideos.map((v: any) => ({ id: v.id, url: v.url, position: v.position, alt: undefined, type: 'video' as const, thumbnailUrl: v.thumbnail || undefined }));
   const variants = (dto.variants || []).map((v: any) => ({ id: v.id, size: v.size || undefined, color: v.color || undefined, sku: v.sku || undefined, price_override_minor: v.price_minor ?? undefined, active: !!v.active, title: v.title || undefined }));
   const out: Product = {
     id: dto.id,
@@ -144,6 +145,11 @@ export async function getProduct(id: string): Promise<Product> {
     videos,
     variants,
     created_at: dto.created_at,
+  };
+  // Provide raw media back to ProductForm for initial tiles/order
+  (out as any)._fullMedia = {
+    images: (dto.images || []).map((m: any) => ({ url: m.url, position: m.position, alt_text: m.alt_text })),
+    videos: dtoVideos.map((v: any) => ({ url: v.url, thumbnail: v.thumbnail || null, position: v.position }))
   };
   // Attach discovery extras for edit form
   (out as any).external_url = dto.external_url ?? "";
