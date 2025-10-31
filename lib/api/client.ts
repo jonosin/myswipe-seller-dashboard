@@ -12,14 +12,12 @@ export async function apiFetch(path: string, init?: RequestInit & { json?: any }
   const url = `${BASE}${path}`;
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
   if (init?.json !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
   if (ADMIN_SECRET) headers["X-Admin-Secret"] = ADMIN_SECRET;
-
-  const DEFAULT_TIMEOUT_MS = Number((process.env as any).NEXT_PUBLIC_API_TIMEOUT_MS || 120000);
-  const ac = new AbortController();
-  const to = setTimeout(() => ac.abort(new Error("timeout")), Math.max(1000, DEFAULT_TIMEOUT_MS));
   let res: Response;
   try {
     res = await fetch(url, {
@@ -28,14 +26,9 @@ export async function apiFetch(path: string, init?: RequestInit & { json?: any }
       body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
       credentials: "omit",
       mode: "cors",
-      signal: ac.signal,
     } as RequestInit);
   } catch (e: any) {
-    clearTimeout(to);
-    const msg = e?.name === 'AbortError' ? `Request timeout calling ${url}` : `Network error calling ${url}: ${e?.message || e}`;
-    throw new Error(msg);
-  } finally {
-    clearTimeout(to);
+    throw new Error(`Network error calling ${url}: ${e?.message || e}`);
   }
   if (!res.ok) {
     let msg = `${res.status}`;

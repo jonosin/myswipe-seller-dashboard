@@ -28,7 +28,6 @@ import Image from "next/image";
 const variantSchema = z.object({
   size: z.string().optional(),
   color: z.string().optional(),
-  stock: z.coerce.number().int().min(0).default(1),
   optionValues: z.record(z.string()).optional(),
   price: z.coerce.number().min(0).optional(),
   compareAtPrice: z.coerce.number().min(0).nullable().optional(),
@@ -44,7 +43,6 @@ const schema = z.object({
   price: z.coerce.number().min(0),
   compareAtPrice: z.coerce.number().min(0).nullable().optional(),
   costPerItem: z.coerce.number().min(0).optional(),
-  inventory: z.coerce.number().int().min(0).default(1),
   variants: z.array(variantSchema).default([]),
   images: z.array(z.string().min(1)).default([]),
   imagesMeta: z
@@ -100,7 +98,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     price: 0,
     compareAtPrice: null,
     costPerItem: undefined,
-    inventory: 1,
     variants: [],
     images: [],
     imagesMeta: [],
@@ -233,7 +230,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           brand: (initial as any).brand ?? "",
           price: initial.price,
           compareAtPrice: initial.compareAtPrice ?? null,
-          inventory: initial.inventory,
           variants: initial.variants ?? [],
           images: initial.images ?? [],
           visibility: initial.visibility,
@@ -346,7 +342,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   useEffect(() => {
     const wasOpen = prevOpenRef.current;
     if (open && !wasOpen) {
-      try { toast.message("Heads up: video uploads can take up to a minute after you save. Please wait."); } catch {}
       if (isEdit && initial) {
         const editDefaults: FormValues = {
           title: initial.title,
@@ -356,7 +351,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           price: initial.price,
           compareAtPrice: initial.compareAtPrice ?? null,
           costPerItem: initial.costPerItem,
-          inventory: initial.inventory,
           variants: initial.variants ?? [],
           images: initial.images ?? [],
           imagesMeta: initial.images?.map((u, i) => ({ id: crypto.randomUUID(), url: u, sortOrder: i })),
@@ -568,11 +562,10 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       return;
     }
     const categoryValue = values.category === "Other (Custom)" && values.customCategory?.trim() ? values.customCategory.trim() : values.category;
-    // Build variants from matrix
+    // Build variants from matrix (no inventory tracking)
     const variantsPayload = variantKeys.map((key): DtoVariant => {
       const ov = JSON.parse(key) as Record<string, string>;
       const vm = variantMap[key] ?? {};
-      const baseMinor = toMinor(values.price);
       const overrideMinor = typeof vm.price === "number" ? toMinor(vm.price) : undefined;
       return {
         id: crypto.randomUUID(),
@@ -580,22 +573,28 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         color: ov["Color"] as string | undefined,
         sku: vm.sku,
         price_override_minor: overrideMinor,
-        stock: vm.inventory ?? 1,
         active: vm.available ?? true,
         title: [ov["Size"], ov["Color"]].filter(Boolean).join(" / ") || undefined,
-      };
+      } as DtoVariant;
     });
     const priceMinor = toMinor(values.price);
     const dealPercent = values.mode === "deal" ? values.discountPercent : undefined;
     const dealPriceMinor = typeof dealPercent === "number" ? Math.max(0, Math.round(priceMinor * (1 - dealPercent / 100))) : undefined;
-    const orderedImages = mediaOrder.filter(t => t.startsWith('img:')).map(t => {
-      const id = t.slice(4);
-      return imageList.find(im => im.id === id);
-    }).filter(Boolean) as typeof imageList;
-    const orderedVideos = mediaOrder.filter(t => t.startsWith('vid:')).map(t => {
-      const id = t.slice(4);
-      return videoList.find(v => v.id === id);
-    }).filter(Boolean) as typeof videoList;
+    // Respect manual media order tokens to determine final order
+    const orderedImages = mediaOrder
+      .filter(t => t.startsWith('img:'))
+      .map(t => {
+        const id = t.slice(4);
+        return imageList.find(im => im.id === id);
+      })
+      .filter(Boolean) as typeof imageList;
+    const orderedVideos = mediaOrder
+      .filter(t => t.startsWith('vid:'))
+      .map(t => {
+        const id = t.slice(4);
+        return videoList.find(v => v.id === id);
+      })
+      .filter(Boolean) as typeof videoList;
     const finalImagesOrder = orderedImages.length ? orderedImages : imageList;
     const finalVideosOrder = orderedVideos.length ? orderedVideos : videoList;
     const mediaPayload: DtoMedia[] = finalImagesOrder.map((im, i) => ({
@@ -621,7 +620,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       currency: "THB",
       category: categoryValue,
       brand: (values.brand || "").trim() || undefined,
-      inventory: typeof values.inventory === "number" ? values.inventory : undefined,
       weight: values.weight ? { value: values.weight.value, unit: values.weight.unit ?? "g" } : undefined,
       active: false,
       deal_active: values.mode === "deal",
@@ -637,7 +635,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       is_swipe_hour: !!values.is_swipe_hour,
     } as unknown as ProductCreate; // cast to allow created_at omission by API
 
-    const tId = toast.loading("Uploading media... This may take up to a minute for videos. Please wait.");
     try {
       if (isEdit && initial) {
         const patch: ProductUpdate = {
@@ -647,7 +644,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           currency: "THB",
           category: payload.category,
           brand: payload.brand,
-          inventory: payload.inventory,
           weight: payload.weight,
           deal_active: payload.deal_active,
           deal_percent: payload.deal_percent,
@@ -657,13 +653,13 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           videos: payload.videos,
         } as ProductUpdate;
         await apiUpdateProduct(initial.id, { ...(patch as any), external_url: values.external_url, coupon_code: values.coupon_code || null, is_swipe_hour: !!values.is_swipe_hour } as any);
-        toast.success("Product updated", { id: tId });
+        toast.success("Product updated");
         onSaved?.(initial as any);
         onOpenChange(false);
       } else {
         // Blocking create: wait for media uploads to finish to ensure reliability
         await apiCreateProduct(payload);
-        toast.success("Product added and media uploaded", { id: tId });
+        toast.success("Product added and media uploaded");
         onSaved?.(initial as any);
         reset(createDefaults);
         revokeBlobUrls(imageList);
@@ -673,7 +669,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       }
     } catch (e: any) {
       const msg = String(e?.message || e || "");
-      toast.error(msg || "Failed to save product", { id: tId });
+      toast.error(msg || "Failed to save product");
     }
   };
 
@@ -753,7 +749,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     return cartesian.map((ov) => JSON.stringify(ov));
   }, [options]);
 
-  const [variantMap, setVariantMap] = useState<Record<VariantKey, { price?: number; compareAtPrice?: number | null; costPerItem?: number; sku?: string; inventory?: number; available?: boolean }>>({});
+  const [variantMap, setVariantMap] = useState<Record<VariantKey, { price?: number; compareAtPrice?: number | null; costPerItem?: number; sku?: string; available?: boolean }>>({});
   // Preserve per-variant edits when option sets change
   useEffect(() => {
     setVariantMap((prev) => {
@@ -798,14 +794,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   const dealOk = mode !== "deal" || (typeof discount === "number" && discount >= 1 && discount <= 90);
   const canSubmit = titleOk && priceOk && variantsOk && dealOk;
 
-  const anyLow = useMemo(() => {
-    return variantKeys.some((key) => {
-      const vm = variantMap[key] ?? {};
-      const inv = vm.inventory ?? 0;
-      const avail = vm.available ?? true;
-      return avail && inv < 3;
-    });
-  }, [variantKeys, variantMap]);
+  
 
   // Deal price derived from discountPercent and price, and two-way mapping without schema change
   const [dealPriceInput, setDealPriceInput] = useState<string>("");
@@ -978,14 +967,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               </div>
             )}
           </div>
-          {/* Inventory */}
-          <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="text-sm font-medium mb-2">Inventory</div>
-            <div>
-              <label className="block text-sm text-neutral-700 mb-1" htmlFor="inventory">Available quantity</label>
-              <input id="inventory" type="number" {...register("inventory")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" aria-invalid={!!errors.inventory} placeholder="1" />
-            </div>
-          </div>
+          
 
           {/* Media */}
           <div ref={imagesSectionRef} id="imagesTop" className={`${imagesError ? "border-red-300" : "border-neutral-200"} card rounded-xl border bg-white p-4 shadow-sm`} onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); onDropAny(e.dataTransfer.files); }}>
@@ -1194,67 +1176,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           </div>
           )}
 
-          {false && (
-            <div className="card rounded-xl border border-neutral-200 bg-white p-4 shadow-sm grid grid-cols-1 gap-2">
-              <div className="text-sm font-medium flex items-center gap-2">Variants {anyLow && <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px]">LOW</span>}</div>
-              <div className="overflow-x-auto border border-neutral-200 rounded-md">
-                <table className="table min-w-[700px]">
-                  <thead>
-                    <tr>
-                      <th>Variant</th>
-                      <th className="text-right">Price</th>
-                      <th className="text-right">Compare</th>
-                      <th className="text-right">Cost</th>
-                      <th>SKU</th>
-                      <th className="text-right">Inventory</th>
-                      <th className="text-right">Reserved</th>
-                      <th>Available</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {variantKeys.map((key) => {
-                      const ov = JSON.parse(key) as Record<string, string>;
-                      const vm = variantMap[key] ?? {};
-                      const variantLabel = options.map((o) => ov[o.name]).filter(Boolean).join(" / ");
-                      return (
-                        <tr key={key}>
-                          <td>
-                            <div className="flex items-center gap-2">
-                              <span>{variantLabel}</span>
-                              {(vm.available ?? true) && (vm.inventory ?? 0) < 3 && (
-                                <span className="inline-flex items-center rounded-full border px-1 py-0.5 text-[10px]">LOW</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="text-right">
-                            <input type="number" step="0.01" className="w-24 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.price ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], price: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
-                          </td>
-                          <td className="text-right">
-                            <input type="number" step="0.01" className="w-24 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.compareAtPrice ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], compareAtPrice: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
-                          </td>
-                          <td className="text-right">
-                            <input type="number" step="0.01" className="w-24 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.costPerItem ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], costPerItem: e.target.value === "" ? undefined : Number(e.target.value) } }))} />
-                          </td>
-                          <td>
-                            <input type="text" className="w-28 rounded border border-neutral-300 px-2 py-1" value={vm.sku ?? ""} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], sku: e.target.value } }))} />
-                          </td>
-                          <td className="text-right">
-                            <input type="number" className="w-20 rounded border border-neutral-300 px-2 py-1 text-right" value={vm.inventory ?? 1} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], inventory: Number(e.target.value) } }))} />
-                          </td>
-                          <td className="text-right">
-                            <span className="inline-block w-20 text-right">0</span>
-                          </td>
-                          <td>
-                            <input type="checkbox" checked={vm.available ?? true} onChange={(e) => setVariantMap((prev) => ({ ...prev, [key]: { ...prev[key], available: e.target.checked } }))} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {/* Variants table with inventory removed */}
 
             {/* Media (duplicate hidden) */}
             {false && (

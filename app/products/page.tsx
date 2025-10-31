@@ -333,9 +333,6 @@ export default function ProductsPage() {
                     <div className="h-10 w-10 rounded border border-neutral-200 bg-neutral-100" aria-hidden />
                   )}
                   <span className="truncate max-w-[12rem] sm:max-w-[20rem]">{p.title}</span>
-                  {p.low_stock && (
-                    <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium">LOW</span>
-                  )}
                   {(p.mode ?? "discover") === "deal" && (
                     <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium">DEAL</span>
                   )}
@@ -344,7 +341,6 @@ export default function ProductsPage() {
             } },
             { key: "sku", header: "SKU", render: () => "-" },
             { key: "category", header: "Category" },
-            { key: "inventory", header: "Inventory", render: () => "-", align: "right" },
             { key: "price", header: "Price", render: (p: ProductSummary) => formatTHB(p.price_minor), align: "right" },
             { key: "mode", header: "Mode", render: (p: ProductSummary) => {
               const label = p.mode ?? "discover";
@@ -382,8 +378,7 @@ export default function ProductsPage() {
                 price: (full.price_minor || 0) / 100,
                 compareAtPrice: undefined,
                 sku: "",
-                inventory: 0,
-                variants: full.variants.map((v) => ({ size: v.size, color: v.color, stock: v.stock })),
+                variants: full.variants.map((v) => ({ size: v.size, color: v.color })),
                 images: full.images.sort((a,b)=>a.position-b.position).map((m)=>m.url),
                 visibility: "public",
                 status: full.active ? "active" : "draft",
@@ -393,11 +388,6 @@ export default function ProductsPage() {
                 coupon_code: (full as any).coupon_code || "",
                 is_swipe_hour: !!(full as any).is_swipe_hour,
               } as Product;
-              // Pass through raw media for edit modal hydration
-              (mapped as any)._fullMedia = {
-                images: (full.images || []).slice().sort((a: any,b: any)=>a.position-b.position),
-                videos: (full.videos || []).slice().sort((a: any,b: any)=>a.position-b.position),
-              };
               setEditProduct(mapped);
               setOpenForm(true);
             } catch (e) {

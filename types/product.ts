@@ -18,7 +18,6 @@ export type Variant = {
   color?: string;
   sku?: string;
   price_override_minor?: number; // optional
-  stock: number; // integer ≥ 0
   active: boolean;
   title?: string; // may be derived from size/color if omitted
 };
@@ -32,7 +31,6 @@ export type Product = {
   category: string;
   brand?: string;
   sku?: string; // optional root-level SKU
-  inventory?: number; // optional root-level inventory
   weight?: { value?: number; unit: "g" | "kg" };
   active: boolean; // admin-controlled
   deal_active: boolean;
@@ -54,14 +52,12 @@ export type ProductSummary = {
   active: boolean; // live when true
   deal_active: boolean;
   deal_percent?: number;
-  low_stock: boolean; // any active variant stock < 3
   created_at: string;
   category?: string;
   price_minor: number;
   currency: Currency;
   mode: "discover" | "deal"; // derive from deal_active
   review_status?: "pending_review"; // optional pending state
-  inventory?: number; // total inventory for list
   coupon_code?: string;
   is_swipe_hour?: boolean;
 };

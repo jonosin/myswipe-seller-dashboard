@@ -4,7 +4,6 @@ export type ProductVariant = {
   // Legacy/simple fields (kept for backward compatibility)
   size?: string;
   color?: string;
-  stock: number;
 
   // Extended variant fields (optional)
   optionValues?: Record<string, string>;
@@ -49,7 +48,6 @@ export type Product = {
   // Optional cost at root for compatibility with views that don't use pricing object
   costPerItem?: number;
   sku: string;
-  inventory: number;
   variants: ProductVariant[];
   images: string[];
   // Optional extended fields (mock-only, non-breaking)

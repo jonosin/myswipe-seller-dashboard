@@ -27,7 +27,6 @@ let store: Product[] = legacy.map((p, idx): Product => {
     size: v.size,
     color: v.color,
     sku: v.sku,
-    stock: v.stock,
     active: true,
   }));
   const created_at = new Date(Date.now() - idx * 86400000).toISOString();
@@ -39,7 +38,6 @@ let store: Product[] = legacy.map((p, idx): Product => {
     currency: "THB",
     category: p.category,
     sku: p.sku,
-    inventory: p.inventory,
     weight: p.weight ? { value: p.weight.value, unit: p.weight.unit } : undefined,
     active: (p.status === "active"),
     deal_active,
@@ -63,14 +61,12 @@ function summarize(p: Product): ProductSummary {
     active: p.active,
     deal_active: p.deal_active,
     deal_percent: p.deal_percent,
-    low_stock: p.variants.some((v) => v.active && v.stock < 3),
     created_at: p.created_at,
     category: p.category,
     price_minor: p.price_minor,
     currency: p.currency,
     mode: p.deal_active ? "deal" : "discover",
     review_status: pendingReview.has(p.id) ? "pending_review" : undefined,
-    inventory: typeof p.inventory === "number" ? p.inventory : p.variants.reduce((sum, v) => sum + (v.stock || 0), 0),
   };
 }
 
@@ -102,7 +98,6 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
     active: !!r.active,
     deal_active: !!r.deal_active,
     deal_percent: r.deal_percent ?? undefined,
-    low_stock: false,
     created_at: r.created_at,
     category: r.category ?? undefined,
     price_minor: r.price_minor ?? 0,
@@ -130,7 +125,7 @@ export async function getProduct(id: string): Promise<Product> {
   // Backend already returns public URLs for images/videos in dto
   const images = (dto.images || []).map((m: any) => ({ id: m.id, url: m.url, position: m.position, alt: m.alt_text }));
   const videos = (dto.videos || []).map((v: any) => ({ id: v.id, url: v.url, position: v.position, alt: undefined, type: "video", thumbnailUrl: v.thumbnail || undefined }));
-  const variants = (dto.variants || []).map((v: any) => ({ id: v.id, size: v.size || undefined, color: v.color || undefined, sku: v.sku || undefined, price_override_minor: v.price_minor ?? undefined, stock: v.stock ?? 0, active: !!v.active, title: v.title || undefined }));
+  const variants = (dto.variants || []).map((v: any) => ({ id: v.id, size: v.size || undefined, color: v.color || undefined, sku: v.sku || undefined, price_override_minor: v.price_minor ?? undefined, active: !!v.active, title: v.title || undefined }));
   const out: Product = {
     id: dto.id,
     title: dto.title,
@@ -140,7 +135,6 @@ export async function getProduct(id: string): Promise<Product> {
     category: dto.category,
     brand: dto.brand ?? undefined,
     sku: undefined,
-    inventory: undefined,
     weight: undefined,
     active: !!dto.active,
     deal_active: !!dto.pricing?.is_deal || !!dto.deal_active,
@@ -181,7 +175,6 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     price_override_minor: undefined,
     size: undefined,
     color: undefined,
-    stock: (typeof (input as any).inventory === 'number' ? Math.max(1, (input as any).inventory) : 1),
     active: true,
   }];
   for (const v of toCreate) {
@@ -191,64 +184,33 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       price_minor: v.price_override_minor ?? input.price_minor,
       size: v.size,
       color: v.color,
-      stock: v.stock ?? 1,
       active: v.active ?? true,
     }});
   }
   const uploadMedia = async (m: Media) => {
-    const putWithTimeout = async (url: string, blob: Blob, type: string, ms = 120_000): Promise<void> => {
-      const ac = new AbortController();
-      const to = setTimeout(() => ac.abort('timeout'), ms);
-      try {
-        const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type }, body: blob, signal: ac.signal });
-        if (!resp.ok) {
-          let t = '';
-          try { t = await resp.text(); } catch {}
-          throw new Error(t || `Upload failed (${resp.status})`);
-        }
-      } finally {
-        clearTimeout(to);
-      }
-    };
-    const withTimeout = async <T,>(p: Promise<T>, ms: number, label='op'): Promise<T> => {
-      return new Promise<T>((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
-        p.then((v) => { clearTimeout(t); resolve(v); }).catch((e) => { clearTimeout(t); reject(e); });
-      });
-    };
     const uploadWithFallback = async (
       bucket: 'product-images' | 'product-videos',
       signed: { path: string; token: string; uploadUrl: string },
       blob: Blob,
       type: string
     ) => {
-      // SDK first (reliable content-type + auth), then raw PUT fallback with retries
       try {
-        const up = await withTimeout(
-          supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true }),
-          180_000,
-          'supabase upload'
-        );
+        const up = await supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
         if ((up as any)?.error) throw new Error((up as any).error.message || 'Upload failed');
-        return;
-      } catch (sdkErr) {
-        let lastErr: any = sdkErr;
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try { await putWithTimeout(signed.uploadUrl, blob, type, Math.min(180_000, 60_000 * attempt)); return; } catch (e) { lastErr = e; }
+      } catch (e) {
+        // Fallback to raw PUT to signedUrl
+        const resp = await fetch(signed.uploadUrl, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob });
+        if (!resp.ok) {
+          let t = '';
+          try { t = await resp.text(); } catch {}
+          throw new Error(t || `Upload failed (${resp.status})`);
         }
-        await putWithTimeout(signed.uploadUrl, blob, type, 240_000).catch((e) => { throw lastErr || e; });
       }
     };
     const toBlob = async (url: string, f?: File | Blob): Promise<{ blob: Blob, type: string, ext: string }> => {
       if (f instanceof Blob) {
         const type = f.type || 'application/octet-stream';
-        const ext = type.includes('png') ? 'png'
-          : type.includes('webm') ? 'webm'
-          : type.includes('mp4') ? 'mp4'
-          : type.includes('quicktime') ? 'mov'
-          : type.includes('gif') ? 'gif'
-          : type.includes('jpeg') ? 'jpg'
-          : 'bin';
+        const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('gif') ? 'gif' : type.includes('jpeg') ? 'jpg' : 'bin';
         return { blob: f, type, ext };
       }
       if (url.startsWith("data:")) {
@@ -265,38 +227,14 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       const resp = await fetch(url);
       const blob = await resp.blob();
       const type = blob.type || "application/octet-stream";
-      const ext = type.includes("png") ? "png"
-        : type.includes("webm") ? "webm"
-        : type.includes("mp4") ? "mp4"
-        : type.includes("quicktime") ? "mov"
-        : type.includes("gif") ? "gif" : "jpg";
+      const ext = type.includes("png") ? "png" : type.includes("webm") ? "webm" : type.includes("mp4") ? "mp4" : type.includes("gif") ? "gif" : "jpg";
       return { blob, type, ext };
     };
     if (m.type === "video") {
       const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
       const signed = await apiFetch(`/v1/media/video-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
       await uploadWithFallback('product-videos', signed, blob, type);
-      
-      // Process video to normalize color space (fixes brightness/color issues)
-      console.log('[VIDEO] Processing video:', signed.path);
-      let processed;
-      try {
-        processed = await apiFetch(`/v1/media/process-video`, { 
-          method: "POST", 
-          json: { 
-            path: signed.path, 
-            productId: pid,
-            generateThumbnail: false  // Don't auto-generate thumbnails - they appear as extra images in gallery
-          } 
-        });
-        console.log('[VIDEO] Processing complete:', processed.path);
-      } catch (error: any) {
-        console.error('[VIDEO] Processing failed:', error.message);
-        throw new Error(`Video processing failed: ${error.message}. Please try uploading again or contact support.`);
-      }
-      
       let thumbPath: string | undefined;
-      // Only use manually provided thumbnails
       if (m.thumbnailUrl && m.thumbnailUrl.startsWith('data:')) {
         try {
           const t = await toBlob(m.thumbnailUrl);
@@ -304,11 +242,8 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
           await uploadWithFallback('product-images', thumbSigned, t.blob, t.type);
           thumbPath = thumbSigned.path as string;
         } catch {}
-      } else if (m.thumbnailUrl && !m.thumbnailUrl.startsWith('data:')) {
-        thumbPath = m.thumbnailUrl;
       }
-      
-      await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: processed.path, thumbnail: thumbPath, position: m.position } });
+      await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: signed.path, thumbnail: thumbPath ?? (m.thumbnailUrl && !m.thumbnailUrl.startsWith('data:') ? m.thumbnailUrl : undefined), position: m.position } });
     } else {
       const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
       const signed = await apiFetch(`/v1/media/image-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
@@ -343,114 +278,8 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
       deal_price_minor: input.deal_price_minor,
     }});
   }
-  const putWithTimeout = async (url: string, blob: Blob, type: string, ms = 120_000): Promise<void> => {
-    const ac = new AbortController();
-    const to = setTimeout(() => ac.abort('timeout'), ms);
-    try {
-      const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob, signal: ac.signal });
-      if (!resp.ok) {
-        let t = '';
-        try { t = await resp.text(); } catch {}
-        throw new Error(t || `Upload failed (${resp.status})`);
-      }
-    } finally {
-      clearTimeout(to);
-    }
-  };
-  const withTimeout = async <T,>(p: Promise<T>, ms: number, label='op'): Promise<T> => {
-    return new Promise<T>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
-      p.then((v) => { clearTimeout(t); resolve(v); }).catch((e) => { clearTimeout(t); reject(e); });
-    });
-  };
-  const uploadWithFallback = async (
-    bucket: 'product-images' | 'product-videos',
-    signed: { path: string; token: string; uploadUrl: string },
-    blob: Blob,
-    type: string
-  ) => {
-    try {
-      const up = await withTimeout(supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true }), 180_000, 'supabase upload');
-      if ((up as any)?.error) throw new Error((up as any).error.message || 'Upload failed');
-      return;
-    } catch (sdkErr) {
-      let lastErr: any = sdkErr;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try { await putWithTimeout(signed.uploadUrl, blob, type, Math.min(180_000, 60_000 * attempt)); return; } catch (e) { lastErr = e; }
-      }
-      await putWithTimeout(signed.uploadUrl, blob, type, 240_000).catch((e) => { throw lastErr || e; });
-    }
-  };
-  // Attach newly added media (skip existing remote URLs)
-  const isNewImage = (m: any) => typeof m?.url === 'string' && (m.url.startsWith('data:') || m.url.startsWith('blob:'));
-  const isNewVideo = (v: any) => (v?.file instanceof Blob) || (typeof v?.url === 'string' && (v.url.startsWith('blob:') || v.url.startsWith('data:')));
-  const imgs: any[] = Array.isArray((input as any).images) ? (input as any).images : [];
-  const vids: any[] = Array.isArray((input as any).videos) ? (input as any).videos : [];
-  const newImgs = imgs.filter(isNewImage);
-  const newVids = vids.filter(isNewVideo);
-  const toBlob = async (url: string, f?: File | Blob): Promise<{ blob: Blob, type: string, ext: string }> => {
-    if (f instanceof Blob) {
-      const type = f.type || 'application/octet-stream';
-      const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('quicktime') ? 'mov' : type.includes('gif') ? 'gif' : type.includes('jpeg') ? 'jpg' : 'bin';
-      return { blob: f, type, ext };
-    }
-    if (url.startsWith('data:')) {
-      const m = /^data:([^;]+);base64,(.*)$/.exec(url);
-      const type = m?.[1] || 'application/octet-stream';
-      const b64 = m?.[2] || '';
-      const bin = typeof atob !== 'undefined' ? atob(b64) : Buffer.from(b64, 'base64').toString('binary');
-      const arr = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-      const blob = new Blob([arr], { type });
-      const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('gif') ? 'gif' : 'jpg';
-      return { blob, type, ext };
-    }
-    // blob: URL
-    const resp = await fetch(url);
-    const blob = await resp.blob();
-    const type = blob.type || 'application/octet-stream';
-    const ext = type.includes('png') ? 'png' : type.includes('webm') ? 'webm' : type.includes('mp4') ? 'mp4' : type.includes('quicktime') ? 'mov' : type.includes('gif') ? 'gif' : 'jpg';
-    return { blob, type, ext };
-  };
-  for (let i = 0; i < newImgs.length; i++) {
-    const im = newImgs[i];
-    const { blob, type, ext } = await toBlob(im.url);
-    const signed = await apiFetch(`/v1/media/image-signed-url`, { method: 'POST', json: { fileName: `upload.${ext}`, contentType: type, productId: id } });
-    await uploadWithFallback('product-images', signed, blob, type);
-    await apiFetch(`/v1/products/${id}/images`, { method: 'POST', json: { path: signed.path, alt_text: im.alt, position: im.position ?? i } });
-  }
-  for (let i = 0; i < newVids.length; i++) {
-    const v = newVids[i];
-    const { blob, type, ext } = await toBlob(v.url, v.file);
-    const signed = await apiFetch(`/v1/media/video-signed-url`, { method: 'POST', json: { fileName: `upload.${ext}`, contentType: type, productId: id } });
-    await uploadWithFallback('product-videos', signed, blob, type);
-    
-    // Process video to normalize color space (fixes brightness/color issues)
-    const processed = await apiFetch(`/v1/media/process-video`, { 
-      method: 'POST', 
-      json: { 
-        path: signed.path, 
-        productId: id,
-        generateThumbnail: false  // Don't auto-generate thumbnails - they appear as extra images in gallery
-      } 
-    });
-    
-    let thumbPath: string | undefined;
-    // Only use manually provided thumbnails
-    if (v.thumbnailUrl && v.thumbnailUrl.startsWith('data:')) {
-      try {
-        const t = await toBlob(v.thumbnailUrl);
-        const thumbSigned = await apiFetch(`/v1/media/image-signed-url`, { method: 'POST', json: { fileName: `thumb.${t.ext}`, contentType: t.type, productId: id } });
-        await uploadWithFallback('product-images', thumbSigned, t.blob, t.type);
-        thumbPath = thumbSigned.path as string;
-      } catch {}
-    } else if (v.thumbnailUrl && !v.thumbnailUrl.startsWith('data:')) {
-      thumbPath = v.thumbnailUrl;
-    }
-    
-    await apiFetch(`/v1/products/${id}/videos`, { method: 'POST', json: { path: processed.path, thumbnail: thumbPath, position: v.position ?? i } });
-  }
-  return await getProduct(id);
+  const full = await getProduct(id);
+  return full;
 }
 
 export async function submitProductForReview(id: string): Promise<{ id: string; status: "pending_review" }> {
@@ -464,9 +293,9 @@ export async function adminApproveProduct(id: string): Promise<{ id: string; act
   const p = store.find((x) => x.id === id);
   if (!p) throw new Error("Not found");
   const hasImages = (p.images?.length || 0) > 0;
-  const hasSellableVariant = p.variants.some((v) => v.active && (v.stock || 0) > 0);
-  if (!hasImages || !hasSellableVariant) {
-    throw new Error("Cannot approve: require at least 1 image and 1 active variant with stock > 0");
+  const hasActiveVariant = p.variants.some((v) => v.active);
+  if (!hasImages || !hasActiveVariant) {
+    throw new Error("Cannot approve: require at least 1 image and 1 active variant");
   }
   store = store.map((pp) => (pp.id === id ? { ...pp, active: true } : pp));
   pendingReview.delete(id);
