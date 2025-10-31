@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { listProducts } from "@/lib/api/products";
 import { removeProduct, getProduct, submitProductForReview } from "@/lib/api/products";
 import { getSellerStatus } from "@/lib/api/seller";
-import { Filter, ChevronLeft, ChevronRight, X as CloseIcon } from "lucide-react";
+import { Filter, ChevronLeft, ChevronRight, X as CloseIcon, Play } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { Product } from "@/lib/types";
 import type { ProductSummary } from "@/types/product";
@@ -312,6 +312,7 @@ export default function ProductsPage() {
           columns={[
             { key: "title", header: "Product", render: (p: ProductSummary) => {
               const img = p.thumbnail_url;
+              const hasVideo = (p as any).has_video === true;
               return (
                 <div className="flex items-center gap-2">
                   {img ? (
@@ -327,10 +328,21 @@ export default function ProductsPage() {
                         setLightboxReturnEl(e.currentTarget);
                       }}
                     >
-                      <Image src={img} alt="" width={40} height={40} className="h-full w-full object-cover" />
+                      <div className="relative h-full w-full">
+                        <Image src={img} alt="" width={40} height={40} className="h-full w-full object-cover" />
+                        {hasVideo && (
+                          <span className="absolute bottom-0 right-0 m-0.5 rounded bg-black/70 px-1 py-0.5 text-[9px] font-medium text-white">VIDEO</span>
+                        )}
+                      </div>
                     </button>
                   ) : (
-                    <div className="h-10 w-10 rounded border border-neutral-200 bg-neutral-100" aria-hidden />
+                    <div className="relative h-10 w-10 overflow-hidden rounded border border-neutral-200 bg-neutral-100" aria-hidden>
+                      {hasVideo ? (
+                        <div className="absolute inset-0 flex items-center justify-center text-neutral-500">
+                          <Play size={16} />
+                        </div>
+                      ) : null}
+                    </div>
                   )}
                   <span className="truncate max-w-[12rem] sm:max-w-[20rem]">{p.title}</span>
                   {(p.mode ?? "discover") === "deal" && (

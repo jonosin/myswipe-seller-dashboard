@@ -657,7 +657,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         onSaved?.(initial as any);
         onOpenChange(false);
       } else {
-        // Blocking create: wait for media uploads to finish to ensure reliability
+        if (videosPayload.length > 0) setSubmitOverlay({ visible: true, text: "Uploading video... This may take up to a minute" });
         await apiCreateProduct(payload);
         toast.success("Product added and media uploaded");
         onSaved?.(initial as any);
@@ -670,6 +670,9 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
     } catch (e: any) {
       const msg = String(e?.message || e || "");
       toast.error(msg || "Failed to save product");
+    }
+    finally {
+      setSubmitOverlay({ visible: false, text: "" });
     }
   };
 
@@ -842,12 +845,23 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
 
   // Drag state for option values
   const [dragState, setDragState] = useState<{ optId: string; fromIdx: number } | null>(null);
+  const [submitOverlay, setSubmitOverlay] = useState<{ visible: boolean; text: string }>({ visible: false, text: "" });
 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50">
       <div className="fixed inset-0 bg-black/20" onClick={() => onOpenChange(false)} />
       <div className="fixed left-1/2 top-1/2 w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-xl border border-neutral-200 bg-neutral-50 p-4 shadow-card focus:outline-none">
+        {submitOverlay.visible && (
+          <div role="alert" className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
+            <div className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm shadow-card">
+              <div className="flex items-center gap-2">
+                <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-neutral-800" />
+                <span>{submitOverlay.text || "Uploading..."}</span>
+              </div>
+            </div>
+          </div>
+        )}
         <TooltipProvider>
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">{isEdit ? "Edit Product" : "Add Product"}</h2>

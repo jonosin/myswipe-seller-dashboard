@@ -49,6 +49,7 @@ export type ProductSummary = {
   id: string;
   title: string;
   thumbnail_url?: string;
+  has_video?: boolean;
   active: boolean; // live when true
   deal_active: boolean;
   deal_percent?: number;

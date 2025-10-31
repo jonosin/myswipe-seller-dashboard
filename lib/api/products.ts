@@ -91,21 +91,30 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
   };
 
   const { items: rows, nextCursor } = await ensurePage(page, page_size);
-  let mapped: ProductSummary[] = (rows || []).map((r: any) => ({
-    id: r.id,
-    title: r.title,
-    thumbnail_url: publicImage((Array.isArray(r.images) && r.images[0]?.url) ? r.images[0].url : undefined),
-    active: !!r.active,
-    deal_active: !!r.deal_active,
-    deal_percent: r.deal_percent ?? undefined,
-    created_at: r.created_at,
-    category: r.category ?? undefined,
-    price_minor: r.price_minor ?? 0,
-    currency: (r.currency as any) || "THB",
-    mode: r.deal_active ? "deal" : "discover",
-    coupon_code: r.coupon_code ?? undefined,
-    is_swipe_hour: !!r.is_swipe_hour,
-  }));
+  let mapped: ProductSummary[] = (rows || []).map((r: any) => {
+    const imgs = Array.isArray(r.images) ? r.images : [];
+    const vids = Array.isArray(r.videos) ? r.videos : [];
+    const imgPath = imgs[0]?.url as string | undefined;
+    const vidThumbPath = vids[0]?.thumbnail as string | undefined;
+    const thumb = imgPath ? publicImage(imgPath) : (vidThumbPath ? publicImage(vidThumbPath) : undefined);
+    const base: any = {
+      id: r.id,
+      title: r.title,
+      thumbnail_url: thumb,
+      active: !!r.active,
+      deal_active: !!r.deal_active,
+      deal_percent: r.deal_percent ?? undefined,
+      created_at: r.created_at,
+      category: r.category ?? undefined,
+      price_minor: r.price_minor ?? 0,
+      currency: (r.currency as any) || "THB",
+      mode: r.deal_active ? "deal" : "discover",
+      coupon_code: r.coupon_code ?? undefined,
+      is_swipe_hour: !!r.is_swipe_hour,
+    };
+    (base as any).has_video = vids.length > 0;
+    return base as ProductSummary;
+  });
   const { q, status, mode, min_discount } = params;
   if (q) {
     const qq = q.toLowerCase();
@@ -158,6 +167,74 @@ export async function getProduct(id: string): Promise<Product> {
   return out;
 }
 
+// Reusable helper: upload images/videos for a product and attach via backend
+async function uploadProductMedia(pid: string, images: Media[] = [], videos: Media[] = []) {
+  const uploadWithFallback = async (
+    bucket: 'product-images' | 'product-videos',
+    signed: { path: string; token: string; uploadUrl: string },
+    blob: Blob,
+    type: string
+  ) => {
+    try {
+      const up = await supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
+      if ((up as any)?.error) throw new Error((up as any).error.message || 'Upload failed');
+    } catch (e) {
+      const resp = await fetch(signed.uploadUrl, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob });
+      if (!resp.ok) {
+        let t = ''; try { t = await resp.text(); } catch {}
+        throw new Error(t || `Upload failed (${resp.status})`);
+      }
+    }
+  };
+  const toBlob = async (url: string, f?: File | Blob): Promise<{ blob: Blob, type: string, ext: string }> => {
+    const extFromType = (type: string): string => {
+      const t = (type || '').toLowerCase();
+      if (t.includes('png')) return 'png';
+      if (t.includes('jpeg') || t.includes('jpg')) return 'jpg';
+      if (t.includes('gif')) return 'gif';
+      if (t.includes('webp')) return 'webp';
+      if (t.includes('webm')) return 'webm';
+      if (t.includes('mp4')) return 'mp4';
+      if (t.includes('quicktime')) return 'mov';
+      if (t.startsWith('video/')) { const sub = t.split('/')[1] || ''; return sub ? sub.replace(/[^a-z0-9]/g,'') : 'mp4'; }
+      return 'bin';
+    };
+    if (f instanceof Blob) { const type = f.type || 'application/octet-stream'; return { blob: f, type, ext: extFromType(type) }; }
+    if (url.startsWith('data:')) {
+      const m = /^data:([^;]+);base64,(.*)$/.exec(url); const type = m?.[1] || 'application/octet-stream'; const b64 = m?.[2] || '';
+      const bin = typeof atob !== 'undefined' ? atob(b64) : Buffer.from(b64, 'base64').toString('binary'); const arr = new Uint8Array(bin.length);
+      for (let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+      return { blob: new Blob([arr], { type }), type, ext: extFromType(type) };
+    }
+    const resp = await fetch(url); const blob = await resp.blob(); const type = blob.type || 'application/octet-stream';
+    return { blob, type, ext: extFromType(type) };
+  };
+
+  for (const m of images) {
+    const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
+    const signed = await apiFetch(`/v1/media/image-signed-url`, { method: 'POST', json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
+    await uploadWithFallback('product-images', signed, blob, type);
+    await apiFetch(`/v1/products/${pid}/images`, { method: 'POST', json: { path: signed.path, alt_text: m.alt, position: (m as any).position } });
+  }
+
+  for (const v of videos) {
+    const { blob, type, ext } = await toBlob(v.url, (v as any).file as any);
+    const signed = await apiFetch(`/v1/media/video-signed-url`, { method: 'POST', json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
+    await uploadWithFallback('product-videos', signed, blob, type);
+    let thumbPath: string | undefined;
+    const thumbUrl = (v as any).thumbnailUrl as string | undefined;
+    if (thumbUrl && thumbUrl.startsWith('data:')) {
+      try {
+        const t = await toBlob(thumbUrl);
+        const thumbSigned = await apiFetch(`/v1/media/image-signed-url`, { method: 'POST', json: { fileName: `thumb.${t.ext}`, contentType: t.type, productId: pid } });
+        await uploadWithFallback('product-images', thumbSigned, t.blob, t.type);
+        thumbPath = thumbSigned.path as string;
+      } catch {}
+    }
+    await apiFetch(`/v1/products/${pid}/videos`, { method: 'POST', json: { path: signed.path, thumbnail: thumbPath ?? thumbUrl, position: (v as any).position } });
+  }
+}
+
 export async function createProduct(input: ProductCreate): Promise<Product> {
   const base = await apiFetch(`/v1/products`, { method: "POST", json: {
     title: input.title,
@@ -193,88 +270,7 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
       active: v.active ?? true,
     }});
   }
-  const uploadMedia = async (m: Media) => {
-    const uploadWithFallback = async (
-      bucket: 'product-images' | 'product-videos',
-      signed: { path: string; token: string; uploadUrl: string },
-      blob: Blob,
-      type: string
-    ) => {
-      try {
-        const up = await supabase.storage.from(bucket).uploadToSignedUrl(signed.path, signed.token, blob, { contentType: type, upsert: true });
-        if ((up as any)?.error) throw new Error((up as any).error.message || 'Upload failed');
-      } catch (e) {
-        // Fallback to raw PUT to signedUrl
-        const resp = await fetch(signed.uploadUrl, { method: 'PUT', headers: { 'Content-Type': type, 'x-upsert': 'true' }, body: blob });
-        if (!resp.ok) {
-          let t = '';
-          try { t = await resp.text(); } catch {}
-          throw new Error(t || `Upload failed (${resp.status})`);
-        }
-      }
-    };
-    const toBlob = async (url: string, f?: File | Blob): Promise<{ blob: Blob, type: string, ext: string }> => {
-      const extFromType = (type: string): string => {
-        const t = (type || '').toLowerCase();
-        if (t.includes('png')) return 'png';
-        if (t.includes('jpeg') || t.includes('jpg')) return 'jpg';
-        if (t.includes('gif')) return 'gif';
-        if (t.includes('webp')) return 'webp';
-        if (t.includes('webm')) return 'webm';
-        if (t.includes('mp4')) return 'mp4';
-        if (t.includes('quicktime')) return 'mov'; // iPhone MOV
-        if (t.startsWith('video/')) {
-          const sub = t.split('/')[1] || '';
-          if (sub) return sub.replace(/[^a-z0-9]/g, '');
-          return 'mp4';
-        }
-        return 'bin';
-      };
-      if (f instanceof Blob) {
-        const type = f.type || 'application/octet-stream';
-        const ext = extFromType(type);
-        return { blob: f, type, ext };
-      }
-      if (url.startsWith("data:")) {
-        const m = /^data:([^;]+);base64,(.*)$/.exec(url);
-        const type = m?.[1] || "application/octet-stream";
-        const b64 = m?.[2] || "";
-        const bin = typeof atob !== "undefined" ? atob(b64) : Buffer.from(b64, 'base64').toString('binary');
-        const arr = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-        const blob = new Blob([arr], { type });
-        const ext = type.includes("png") ? "png" : type.includes("webp") ? "webp" : type.includes("gif") ? "gif" : "jpg";
-        return { blob, type, ext };
-      }
-      const resp = await fetch(url);
-      const blob = await resp.blob();
-      const type = blob.type || "application/octet-stream";
-      const ext = extFromType(type);
-      return { blob, type, ext };
-    };
-    if (m.type === "video") {
-      const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
-      const signed = await apiFetch(`/v1/media/video-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
-      await uploadWithFallback('product-videos', signed, blob, type);
-      let thumbPath: string | undefined;
-      if (m.thumbnailUrl && m.thumbnailUrl.startsWith('data:')) {
-        try {
-          const t = await toBlob(m.thumbnailUrl);
-          const thumbSigned = await apiFetch(`/v1/media/image-signed-url`, { method: "POST", json: { fileName: `thumb.${t.ext}`, contentType: t.type, productId: pid } });
-          await uploadWithFallback('product-images', thumbSigned, t.blob, t.type);
-          thumbPath = thumbSigned.path as string;
-        } catch {}
-      }
-      await apiFetch(`/v1/products/${pid}/videos`, { method: "POST", json: { path: signed.path, thumbnail: thumbPath ?? (m.thumbnailUrl && !m.thumbnailUrl.startsWith('data:') ? m.thumbnailUrl : undefined), position: m.position } });
-    } else {
-      const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
-      const signed = await apiFetch(`/v1/media/image-signed-url`, { method: "POST", json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
-      await uploadWithFallback('product-images', signed, blob, type);
-      await apiFetch(`/v1/products/${pid}/images`, { method: "POST", json: { path: signed.path, alt_text: m.alt, position: m.position } });
-    }
-  };
-  for (const m of (input.images || [])) await uploadMedia(m);
-  for (const v of (input.videos || [])) await uploadMedia({ ...v, type: "video" });
+  await uploadProductMedia(pid, input.images || [], (input.videos || []).map(v => ({ ...v, type: 'video' as const })));
   if (input.deal_active) {
     await apiFetch(`/v1/products/${pid}/deal`, { method: "PATCH", json: { deal_active: true, deal_percent: input.deal_percent } });
   }
@@ -293,6 +289,14 @@ export async function updateProduct(id: string, input: ProductUpdate): Promise<P
   if ((input as any).coupon_code !== undefined) core.coupon_code = (input as any).coupon_code;
   if (typeof (input as any).is_swipe_hour === "boolean") core.is_swipe_hour = !!(input as any).is_swipe_hour;
   if (Object.keys(core).length) await apiFetch(`/v1/products/${id}`, { method: "PATCH", json: core });
+  // Also upload/attach any newly provided media on edit
+  try {
+    const imgs: Media[] = Array.isArray((input as any).images) ? (input as any).images : [];
+    const vids: Media[] = Array.isArray((input as any).videos) ? (input as any).videos : [];
+    if (imgs.length || vids.length) {
+      await uploadProductMedia(id, imgs, vids.map(v => ({ ...v, type: 'video' as const })));
+    }
+  } catch {}
   if (typeof input.deal_active === "boolean" || typeof input.deal_percent === "number" || typeof input.deal_price_minor === "number") {
     await apiFetch(`/v1/products/${id}/deal`, { method: "PATCH", json: {
       deal_active: !!input.deal_active,
