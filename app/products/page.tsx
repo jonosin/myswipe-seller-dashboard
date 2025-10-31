@@ -388,6 +388,7 @@ export default function ProductsPage() {
                 coupon_code: (full as any).coupon_code || "",
                 is_swipe_hour: !!(full as any).is_swipe_hour,
               } as Product;
+              (mapped as any)._fullMedia = (full as any)._fullMedia || { images: [], videos: [] };
               setEditProduct(mapped);
               setOpenForm(true);
             } catch (e) {

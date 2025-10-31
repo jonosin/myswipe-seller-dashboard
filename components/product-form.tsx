@@ -987,6 +987,11 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                 <button type="button" onClick={() => mediaInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload media</button>
               </div>
             </div>
+            {videoList.length > 0 && (
+              <div role="alert" className="mt-2 rounded-md border border-neutral-300 bg-neutral-100 px-3 py-2 text-xs text-neutral-800">
+                Uploading videos can take up to a minute. After saving, the video may take a short time to appear across the app.
+              </div>
+            )}
             {(mediaOrder.length === 0) && (
               <div className="mt-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-6 text-center">
                 <div className="text-sm text-neutral-600">Drag and drop images or videos here</div>
