@@ -276,6 +276,12 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     active: true
   }});
   const pid = base.id as string;
+  // For deal products, activate deal immediately to avoid appearing in Discover during media upload
+  if ((input as any).deal_active) {
+    try {
+      await apiFetch(`/v1/products/${pid}/deal`, { method: "PATCH", json: { deal_active: true, deal_percent: (input as any).deal_percent } });
+    } catch {}
+  }
   const variantsArr = Array.isArray(input.variants) ? input.variants : [];
   const hasProvidedVariants = variantsArr.length > 0;
   const toCreate = hasProvidedVariants ? variantsArr : [{
@@ -297,9 +303,6 @@ export async function createProduct(input: ProductCreate): Promise<Product> {
     }});
   }
   await uploadProductMedia(pid, input.images || [], (input.videos || []).map(v => ({ ...v, type: 'video' as const })));
-  if (input.deal_active) {
-    await apiFetch(`/v1/products/${pid}/deal`, { method: "PATCH", json: { deal_active: true, deal_percent: input.deal_percent } });
-  }
   return { id: pid } as unknown as Product;
 }
 
