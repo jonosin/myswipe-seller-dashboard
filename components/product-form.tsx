@@ -36,10 +36,10 @@ const variantSchema = z.object({
 });
 
 const schema = z.object({
-  title: z.string().min(1, "Required"),
-  description: z.string().optional(),
+  title: z.string().min(1, "Required").max(80, "Max 80 characters"),
+  description: z.string().max(500, "Max 500 characters").optional(),
   category: z.string().optional(),
-  brand: z.string().optional(),
+  brand: z.string().max(60, "Max 60 characters").optional(),
   price: z.coerce.number().min(0),
   compareAtPrice: z.coerce.number().min(0).nullable().optional(),
   costPerItem: z.coerce.number().min(0).optional(),
@@ -368,17 +368,29 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         reset(editDefaults);
         // Build image tiles
         const imgs = (initial.images || []).map((u, i) => ({ id: crypto.randomUUID(), url: u, sortOrder: i }));
-        setImageList(imgs);
         // Build video tiles from full media when provided
         const full = (initial as any)._fullMedia as { images?: Array<{ url: string; position: number }>; videos?: Array<{ url: string; thumbnail?: string | null; position: number }> } | undefined;
         const vids = (full?.videos || []).map((v, i) => ({ id: crypto.randomUUID(), url: v.url, thumb: v.thumbnail || undefined }));
+        // Set lists
+        setImageList(imgs);
         setVideoList(vids);
-        // Initialize unified order (images first then videos)
-        const tokens: string[] = [
+        // Initialize unified order by global position across images and videos
+        const imgMap = new Map(imgs.map((im) => [im.url, im.id] as const));
+        const vidMap = new Map(vids.map((vv) => [vv.url, vv.id] as const));
+        const combined = [
+          ...(full?.images || []).map((m) => ({ kind: 'img' as const, url: m.url, pos: m.position })),
+          ...(full?.videos || []).map((v) => ({ kind: 'vid' as const, url: v.url, pos: v.position })),
+        ].sort((a, b) => (a.pos ?? 0) - (b.pos ?? 0));
+        const tokens: string[] = [];
+        combined.forEach((c) => {
+          if (c.kind === 'img') { const id = imgMap.get(c.url); if (id) tokens.push(`img:${id}`); }
+          else { const id = vidMap.get(c.url); if (id) tokens.push(`vid:${id}`); }
+        });
+        if (tokens.length) setMediaOrder(tokens);
+        else setMediaOrder([
           ...imgs.map((im) => `img:${im.id}`),
           ...vids.map((vv) => `vid:${vv.id}`)
-        ];
-        setMediaOrder(tokens);
+        ]);
       } else {
         // Create mode: clear everything
         reset(createDefaults);
@@ -597,17 +609,20 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
       .filter(Boolean) as typeof videoList;
     const finalImagesOrder = orderedImages.length ? orderedImages : imageList;
     const finalVideosOrder = orderedVideos.length ? orderedVideos : videoList;
+    // Global positions based on unified mediaOrder tokens
+    const posMap = new Map<string, number>();
+    mediaOrder.forEach((t, idx) => posMap.set(t, idx));
     const mediaPayload: DtoMedia[] = finalImagesOrder.map((im, i) => ({
       id: im.id,
       url: im.dataUrl || im.url,
       alt: im.alt,
-      position: i,
-      type: i === 0 ? "thumbnail" : "image",
+      position: posMap.get(`img:${im.id}`) ?? i,
+      type: (posMap.get(`img:${im.id}`) ?? i) === 0 ? "thumbnail" : "image",
     }));
     const videosPayload: any[] = finalVideosOrder.map((v, i) => ({
       id: v.id,
       url: v.url,
-      position: i,
+      position: posMap.get(`vid:${v.id}`) ?? i,
       type: "video",
       thumbnailUrl: v.thumb,
       file: v.file,
@@ -657,7 +672,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
         onSaved?.(initial as any);
         onOpenChange(false);
       } else {
-        if (videosPayload.length > 0) setSubmitOverlay({ visible: true, text: "Uploading video... This may take up to a minute" });
+        setSubmitOverlay({ visible: true, text: "Please wait. Uploading media — video uploads may take up to a minute." });
         await apiCreateProduct(payload);
         toast.success("Product added and media uploaded");
         onSaved?.(initial as any);
@@ -801,13 +816,19 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
 
   // Deal price derived from discountPercent and price, and two-way mapping without schema change
   const [dealPriceInput, setDealPriceInput] = useState<string>("");
+  const trimMajor = (v: number) => {
+    if (!Number.isFinite(v)) return "";
+    const rounded = Math.round(v * 100) / 100;
+    if (Math.abs(Math.round(rounded) - rounded) < 1e-9) return String(Math.round(rounded));
+    return String(rounded).replace(/(\.[0-9]*?)0+$/, "$1");
+  };
   useEffect(() => {
     if (mode !== "deal") { setDealPriceInput(""); return; }
     const p = Number(price as any);
     const d = Number(discount as any);
     if (Number.isFinite(p) && p > 0 && Number.isFinite(d)) {
       const newPrice = p * (1 - d / 100);
-      if (Number.isFinite(newPrice)) setDealPriceInput(newPrice.toFixed(2)); else setDealPriceInput("");
+      if (Number.isFinite(newPrice)) setDealPriceInput(trimMajor(newPrice)); else setDealPriceInput("");
     } else {
       setDealPriceInput("");
     }
@@ -851,17 +872,17 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
   return (
     <div className="fixed inset-0 z-50">
       <div className="fixed inset-0 bg-black/20" onClick={() => onOpenChange(false)} />
-      <div className="fixed left-1/2 top-1/2 w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-xl border border-neutral-200 bg-neutral-50 p-4 shadow-card focus:outline-none">
-        {submitOverlay.visible && (
-          <div role="alert" className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
-            <div className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm shadow-card">
-              <div className="flex items-center gap-2">
-                <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-neutral-800" />
-                <span>{submitOverlay.text || "Uploading..."}</span>
-              </div>
+      {submitOverlay.visible && (
+        <div role="status" aria-live="polite" className="fixed top-4 right-4 z-[60]">
+          <div className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm shadow-card">
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-4 w-4 rounded-full border-2 border-neutral-300 border-t-neutral-800 animate-spin" />
+              <span>{submitOverlay.text || "Please wait. Uploading media may take a moment..."}</span>
             </div>
           </div>
-        )}
+        </div>
+      )}
+      <div className="fixed left-1/2 top-1/2 w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-xl border border-neutral-200 bg-neutral-50 p-4 shadow-card focus:outline-none">
         <TooltipProvider>
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">{isEdit ? "Edit Product" : "Add Product"}</h2>
@@ -930,11 +951,11 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="title">Name</label>
-                <input id="title" {...register("title")} className={`w-full rounded-lg border ${invalid.title ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.title} />
+                <input id="title" maxLength={80} {...register("title")} className={`w-full rounded-lg border ${invalid.title ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.title} />
               </div>
               <div>
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="brand">Brand</label>
-                <input id="brand" {...register("brand")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
+                <input id="brand" maxLength={60} {...register("brand")} className="w-full rounded-lg border border-neutral-300 px-3 py-2" />
               </div>
               <div>
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="category">Category</label>
@@ -956,7 +977,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               </div>
               <div>
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="description">Description</label>
-                <textarea id="description" {...register("description")} className={`w-full rounded-lg border ${invalid.description ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.description} />
+                <textarea id="description" maxLength={500} {...register("description")} className={`w-full rounded-lg border ${invalid.description ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.description} />
               </div>
             </div>
           </div>
@@ -967,17 +988,37 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
               <div>
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="price">{mode === "deal" ? "Regular Price" : "Price"}</label>
                 <input id="price" type="number" step="0.01" {...register("price")} className={`w-full rounded-lg border ${invalid.price ? "border-red-500" : "border-neutral-300"} px-3 py-2`} aria-invalid={!!errors.price} placeholder="0.00" />
-                {mode === "deal" && typeof price === "number" && typeof discount === "number" && Number.isFinite(price) && Number.isFinite(discount) && (
-                  <p className="text-xs text-neutral-600 mt-1">
-                    Deal price: <span className="font-medium">{formatCurrency(price * (1 - discount / 100))}</span>
-                  </p>
-                )}
               </div>
             </div>
             {mode === "deal" && (
               <div className="mt-3">
                 <label className="block text-sm text-neutral-700 mb-1" htmlFor="discountPercent">Discount % (off regular price)</label>
                 <input id="discountPercent" type="number" min={1} max={90} {...register("discountPercent", { valueAsNumber: true })} aria-invalid={mode === "deal" && (!dealOk)} className={`w-full rounded-lg border px-3 py-2 ${mode === "deal" && (!dealOk) ? "border-red-500" : "border-neutral-300"}`} placeholder="e.g. 20" />
+              </div>
+            )}
+            {mode === "deal" && (
+              <div className="mt-3">
+                <label className="block text-sm text-neutral-700 mb-1" htmlFor="dealPrice">Discounted Price</label>
+                <input
+                  id="dealPrice"
+                  type="number"
+                  step="0.01"
+                  value={dealPriceInput}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setDealPriceInput(raw);
+                    const p = Number(price as any);
+                    const dp = Number(raw);
+                    if (Number.isFinite(p) && p > 0 && Number.isFinite(dp)) {
+                      let pct = (1 - dp / p) * 100;
+                      if (!Number.isFinite(pct)) return;
+                      pct = Math.max(0, Math.min(90, Math.round(pct)));
+                      setValue("discountPercent", pct as any, { shouldDirty: true });
+                    }
+                  }}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2"
+                  placeholder="0.00"
+                />
               </div>
             )}
           </div>
@@ -1001,10 +1042,8 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
                 <button type="button" onClick={() => mediaInputRef.current?.click()} className="rounded-md border border-neutral-300 px-2 py-1 text-sm">Upload media</button>
               </div>
             </div>
-            {videoList.length > 0 && (
-              <div role="alert" className="mt-2 rounded-md border border-neutral-300 bg-neutral-100 px-3 py-2 text-xs text-neutral-800">
-                Uploading videos can take up to a minute. After saving, the video may take a short time to appear across the app.
-              </div>
+            {false && videoList.length > 0 && (
+              <div role="alert" className="mt-2 rounded-md border border-neutral-300 bg-neutral-100 px-3 py-2 text-xs text-neutral-800"></div>
             )}
             {(mediaOrder.length === 0) && (
               <div className="mt-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-6 text-center">

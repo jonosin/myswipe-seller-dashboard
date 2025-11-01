@@ -91,18 +91,42 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
   };
 
   const { items: rows, nextCursor } = await ensurePage(page, page_size);
-  let mapped: ProductSummary[] = (rows || []).map((r: any) => {
-    const imgs = Array.isArray(r.images) ? r.images : [];
-    const vids = Array.isArray(r.videos) ? r.videos : [];
-    const imgPath = imgs[0]?.url as string | undefined;
-    const vidThumbPath = vids[0]?.thumbnail as string | undefined;
-    const vidPath = vids[0]?.url as string | undefined;
-    const thumb = imgPath ? publicImage(imgPath) : (vidThumbPath ? publicImage(vidThumbPath) : undefined);
+  let mapped: ProductSummary[] = await Promise.all((rows || []).map(async (r: any) => {
+    let thumb: string | undefined;
+    let video: string | undefined;
+    let firstIsVideo = false;
+    let hasVideo = false;
+    try {
+      const full = await getProduct(r.id);
+      const imgs = Array.isArray(full.images) ? full.images : [];
+      const vids = Array.isArray((full as any).videos) ? (full as any).videos : [];
+      hasVideo = vids.length > 0;
+      const combined = [
+        ...imgs.map((m: any) => ({ kind: 'image' as const, pos: m.position, img: m.url as string, vid: undefined as string | undefined })),
+        ...vids.map((v: any) => ({ kind: 'video' as const, pos: v.position, img: (v.thumbnail as string | undefined), vid: v.url as string })),
+      ].sort((a, b) => ((a.pos ?? 0) - (b.pos ?? 0)));
+      const first = combined[0];
+      thumb = first?.img;
+      if (first?.kind === 'video') { firstIsVideo = true; video = first.vid; }
+    } catch {
+      // Fallback: prefer image; if only video is present, show video
+      const imgs = Array.isArray(r.images) ? r.images : [];
+      const vids = Array.isArray(r.videos) ? r.videos : [];
+      hasVideo = vids.length > 0;
+      if (imgs.length > 0) {
+        thumb = publicImage(imgs[0].url);
+      } else if (vids.length > 0) {
+        firstIsVideo = true;
+        video = publicVideo(vids[0].url);
+        thumb = vids[0].thumbnail ? publicImage(vids[0].thumbnail) : undefined;
+      }
+    }
     const base: any = {
       id: r.id,
       title: r.title,
       thumbnail_url: thumb,
-      video_url: vidPath ? publicVideo(vidPath) : undefined,
+      video_url: video,
+      first_is_video: firstIsVideo,
       active: !!r.active,
       deal_active: !!r.deal_active,
       deal_percent: r.deal_percent ?? undefined,
@@ -114,9 +138,9 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
       coupon_code: r.coupon_code ?? undefined,
       is_swipe_hour: !!r.is_swipe_hour,
     };
-    (base as any).has_video = vids.length > 0;
+    (base as any).has_video = hasVideo;
     return base as ProductSummary;
-  });
+  }));
   const { q, status, mode, min_discount } = params;
   if (q) {
     const qq = q.toLowerCase();

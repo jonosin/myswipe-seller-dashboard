@@ -12,7 +12,7 @@ import { Filter, ChevronLeft, ChevronRight, X as CloseIcon, Play } from "lucide-
 import * as Dialog from "@radix-ui/react-dialog";
 import type { Product } from "@/lib/types";
 import type { ProductSummary } from "@/types/product";
-import { cn, formatTHB } from "@/lib/utils";
+import { cn, formatTHBCompact } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
 import ConfirmDialog from "@/components/confirm-dialog";
 import { toast } from "@/components/toast";
@@ -84,26 +84,17 @@ export default function ProductsPage() {
     return () => { mounted = false; };
   }, []);
 
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    rows.forEach((p) => { if (p.category) set.add(p.category); });
-    return ["all", ...Array.from(set)];
-  }, [rows]);
+  // Category filtering removed from Products tab UI
 
   const activeFiltersCount = useMemo(() => {
     let n = 0;
-    if (productCategory !== "all") n++;
     if (productMode !== "all") n++;
     if (typeof productMinDiscount === "number") n++;
     return n;
-  }, [productCategory, productMode, productMinDiscount]);
+  }, [productMode, productMinDiscount]);
 
   // Server-side filters are applied via listProducts; only category filter remains client-side when present
-  const filtered = useMemo(() => {
-    let out = rows.slice();
-    if (productCategory !== "all") out = out.filter((p) => p.category === productCategory);
-    return out;
-  }, [rows, productCategory]);
+  const filtered = useMemo(() => rows.slice(), [rows]);
 
   // Filters: close on outside click / other interactions, and return focus to button
   useEffect(() => {
@@ -225,7 +216,7 @@ export default function ProductsPage() {
       <div className="card p-3 mb-4 flex flex-wrap items-center gap-2">
         <div className="flex-1 min-w-[200px]">
           <label htmlFor="search" className="sr-only">Search</label>
-          <input id="search" value={productSearch} onChange={(e) => productSetFilters({ productSearch: e.target.value, productPage: 1 })} placeholder="Search by name or SKU" className="w-full rounded-md border border-neutral-300 px-3 py-2" />
+          <input id="search" value={productSearch} onChange={(e) => productSetFilters({ productSearch: e.target.value, productPage: 1 })} placeholder="Search by name" className="w-full rounded-md border border-neutral-300 px-3 py-2" />
         </div>
         <div className="relative">
           <button
@@ -247,12 +238,6 @@ export default function ProductsPage() {
               onKeyDown={(e) => { if (e.key === "Escape") { setFiltersOpen(false); btnEl?.focus(); } }}
             >
               <div className="space-y-3">
-                <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="flt-category">Category</label>
-                  <select id="flt-category" value={productCategory} onChange={(e) => productSetFilters({ productCategory: e.target.value, productPage: 1 })} className="w-full rounded-md border border-neutral-300 px-3 py-2">
-                    {categories.map((c) => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
-                  </select>
-                </div>
                 <div>
                   <label className="block text-sm text-neutral-700 mb-1" htmlFor="flt-mode">Mode</label>
                   <select id="flt-mode" value={productMode} onChange={(e) => productSetFilters({ productMode: e.target.value as any, productPage: 1 })} className="w-full rounded-md border border-neutral-300 px-3 py-2">
@@ -313,9 +298,14 @@ export default function ProductsPage() {
             { key: "title", header: "Product", render: (p: ProductSummary) => {
               const img = p.thumbnail_url;
               const hasVideo = (p as any).has_video === true;
+              const vid = (p as any).video_url as string | undefined;
               return (
                 <div className="flex items-center gap-2">
-                  {img ? (
+                  {vid ? (
+                    <div className="h-10 w-10 overflow-hidden rounded border border-neutral-200 bg-black">
+                      <video src={vid} muted playsInline loop autoPlay className="h-full w-full object-cover" />
+                    </div>
+                  ) : img ? (
                     <button
                       type="button"
                       className="h-10 w-10 overflow-hidden rounded border border-neutral-200"
@@ -351,18 +341,13 @@ export default function ProductsPage() {
                 </div>
               );
             } },
-            { key: "sku", header: "SKU", render: () => "-" },
-            { key: "category", header: "Category" },
-            { key: "price", header: "Price", render: (p: ProductSummary) => formatTHB(p.price_minor), align: "right" },
+            { key: "price", header: "Price", render: (p: ProductSummary) => formatTHBCompact(p.price_minor), align: "right" },
             { key: "mode", header: "Mode", render: (p: ProductSummary) => {
               const label = p.mode ?? "discover";
               return label.charAt(0).toUpperCase() + label.slice(1);
             } },
             { key: "discount", header: "Discount", render: (p: ProductSummary) => (p.deal_active && typeof p.deal_percent === "number" ? `-${p.deal_percent}%` : "-"), align: "right" },
             { key: "coupon", header: "Coupon", render: (p: ProductSummary) => (p.coupon_code ? p.coupon_code : "-") },
-            { key: "swipe", header: "Swipe Hour", render: (p: ProductSummary) => (p.is_swipe_hour ? (
-              <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium">SWIPE</span>
-            ) : "-") },
             { key: "status", header: "Status", render: (p: ProductSummary) => <StatusBadge status={p.active ? "active" : (p.review_status === "pending_review" ? "pending_review" : "draft")} /> },
           ]}
           rows={paged}
