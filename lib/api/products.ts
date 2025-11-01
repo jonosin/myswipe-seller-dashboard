@@ -96,11 +96,13 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
     const vids = Array.isArray(r.videos) ? r.videos : [];
     const imgPath = imgs[0]?.url as string | undefined;
     const vidThumbPath = vids[0]?.thumbnail as string | undefined;
+    const vidPath = vids[0]?.url as string | undefined;
     const thumb = imgPath ? publicImage(imgPath) : (vidThumbPath ? publicImage(vidThumbPath) : undefined);
     const base: any = {
       id: r.id,
       title: r.title,
       thumbnail_url: thumb,
+      video_url: vidPath ? publicVideo(vidPath) : undefined,
       active: !!r.active,
       deal_active: !!r.deal_active,
       deal_percent: r.deal_percent ?? undefined,
