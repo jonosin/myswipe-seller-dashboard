@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAppStore } from "@/lib/store";
-import { Package, Settings, BarChart3 } from "lucide-react";
+import { Package, Settings, BarChart3, Rocket } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
   { href: "/products", label: "Products", icon: Package },
+  { href: "/boosts", label: "Boosts", icon: Rocket },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
