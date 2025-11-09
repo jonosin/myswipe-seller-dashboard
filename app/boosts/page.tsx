@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Breadcrumbs from "@/components/breadcrumbs";
 import ConfirmDialog from "@/components/confirm-dialog";
-import { listBoosts, createBoosts, cancelBoost, type Boost } from "@/lib/api/boosts";
+import { listBoosts, createBoosts, cancelBoost, createBoostCheckout, type Boost } from "@/lib/api/boosts";
 import { listProducts } from "@/lib/api/products";
 import type { ProductSummary } from "@/types/product";
 import { formatTHBCompact } from "@/lib/utils";
@@ -49,12 +49,12 @@ export default function BoostsPage() {
     const ids = Array.from(selected).filter(id => !activeProductIds.has(id));
     if (!ids.length) { toast.info("Select at least 1 eligible product"); return; }
     try {
-      const res = await createBoosts(ids);
-      const ok = (res.created || []).filter(x => x.id).length;
-      if (ok > 0) toast.success(`Started ${ok} boost${ok !== 1 ? "s" : ""}`);
-      if (ok < ids.length) toast.info("Some boosts could not be created");
-      setSelected(new Set());
-      await loadAll();
+      const res = await createBoostCheckout(ids);
+      if ((res as any)?.url) {
+        window.location.assign((res as any).url);
+        return;
+      }
+      toast.error("Checkout link not available");
     } catch (e: any) {
       toast.error(String(e?.message || e));
     }
@@ -112,7 +112,7 @@ export default function BoostsPage() {
             </table>
           </div>
           <div>
-            <button onClick={onCreate} disabled={selected.size === 0} className="rounded-md border border-neutral-900 bg-neutral-900 text-white px-3 py-2 text-sm disabled:opacity-50">Start Boost Now</button>
+            <button onClick={onCreate} disabled={selected.size === 0} className="rounded-md border border-neutral-900 bg-neutral-900 text-white px-3 py-2 text-sm disabled:opacity-50">Checkout to Boost</button>
           </div>
         </div>
       </div>

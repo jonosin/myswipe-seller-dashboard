@@ -27,3 +27,8 @@ export async function cancelBoost(id: string): Promise<{ ok: boolean }> {
   const res = await apiFetch(`/v1/boosts/${id}/cancel`, { method: "POST" });
   return res as any;
 }
+
+export async function createBoostCheckout(productIds: string[], days?: number): Promise<{ ok: boolean; url: string }> {
+  const res = await apiFetch(`/v1/boosts/checkout`, { method: "POST", json: { product_ids: productIds, days } });
+  return res as any;
+}
