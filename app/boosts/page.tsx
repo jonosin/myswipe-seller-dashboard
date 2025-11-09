@@ -3,18 +3,22 @@
 import { useEffect, useMemo, useState } from "react";
 import Breadcrumbs from "@/components/breadcrumbs";
 import ConfirmDialog from "@/components/confirm-dialog";
-import { listBoosts, createBoosts, cancelBoost, createBoostCheckout, type Boost } from "@/lib/api/boosts";
+import { listBoosts, createBoosts, cancelBoost, createBoostCheckout, activateBoostsFromSession, type Boost } from "@/lib/api/boosts";
 import { listProducts } from "@/lib/api/products";
 import type { ProductSummary } from "@/types/product";
 import { formatTHBCompact } from "@/lib/utils";
 import { toast } from "@/components/toast";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function BoostsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [products, setProducts] = useState<ProductSummary[]>([]);
   const [boosts, setBoosts] = useState<Boost[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [activating, setActivating] = useState(false);
 
   const productMap = useMemo(() => new Map(products.map(p => [p.id, p])), [products]);
   const activeProductIds = useMemo(() => new Set(boosts.filter(b => b.status === "active").map(b => b.product_id)), [boosts]);
@@ -36,6 +40,65 @@ export default function BoostsPage() {
   };
 
   useEffect(() => { loadAll(); }, []);
+
+  // After Stripe redirect, activate boosts from session_id if present
+  useEffect(() => {
+    const ch = searchParams?.get("checkout");
+    const sid = searchParams?.get("session_id");
+    if (ch === "success" && sid && !activating) {
+      setActivating(true);
+      let attempts = 0;
+      const tryActivate = async () => {
+        attempts++;
+        try {
+          const res = await activateBoostsFromSession(sid);
+          const ok = (res.created || []).filter(x => x.status === "active").length;
+          if (ok > 0) {
+            toast.success(`Activated ${ok} boost${ok !== 1 ? "s" : ""}`);
+            await loadAll();
+            setActivating(false);
+            // Clean the URL
+            if (typeof window !== 'undefined') window.history.replaceState({}, "", "/boosts");
+            return;
+          }
+          // No active created: may have been already active elsewhere
+          toast.info("No boosts activated (may have been activated already)");
+          await loadAll();
+          setActivating(false);
+          if (typeof window !== 'undefined') window.history.replaceState({}, "", "/boosts");
+        } catch (e: any) {
+          // For async methods, payment may not be confirmed yet; retry for up to ~2 minutes
+          if (attempts === 1) toast.info("Waiting for payment confirmation...");
+          if (attempts < 24) {
+            setTimeout(tryActivate, 5000);
+          } else {
+            setActivating(false);
+            // Fallback: if webhook activated in background, refresh list so UI updates
+            try { await loadAll(); } catch {}
+            toast.error(String(e?.message || e));
+            if (typeof window !== 'undefined') window.history.replaceState({}, "", "/boosts");
+          }
+        }
+      };
+      tryActivate();
+    }
+  }, [searchParams]);
+
+  // Also poll the boosts list briefly after checkout success to reflect webhook activation even if manual activation fails
+  useEffect(() => {
+    const ch = searchParams?.get("checkout");
+    if (ch === "success") {
+      let ticks = 0;
+      const id = setInterval(async () => {
+        ticks++;
+        try { await loadAll(); } catch {}
+        if (ticks >= 24) {
+          clearInterval(id);
+        }
+      }, 5000);
+      return () => clearInterval(id);
+    }
+  }, [searchParams]);
 
   const selectable = useMemo(() => products.filter(p => p.active && (p.mode ?? "discover") !== "deal"), [products]);
 

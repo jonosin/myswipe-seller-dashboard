@@ -32,3 +32,8 @@ export async function createBoostCheckout(productIds: string[], days?: number): 
   const res = await apiFetch(`/v1/boosts/checkout`, { method: "POST", json: { product_ids: productIds, days } });
   return res as any;
 }
+
+export async function activateBoostsFromSession(sessionId: string): Promise<{ ok: boolean; created: Array<{ product_id: string; status: string }> }> {
+  const res = await apiFetch(`/v1/boosts/activate-from-session`, { method: "POST", json: { session_id: sessionId } });
+  return res as any;
+}
