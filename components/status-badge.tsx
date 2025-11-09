@@ -12,7 +12,7 @@ export function StatusBadge({ status }: { status: string }) {
   };
   return (
     <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs", styles[status] || styles["draft"]) }>
-      {status.replace("_", " ")}
+      {status === "pending_review" ? "pending" : status.replace("_", " ")}
     </span>
   );
 }

@@ -139,6 +139,10 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
       is_swipe_hour: !!r.is_swipe_hour,
     };
     (base as any).has_video = hasVideo;
+    const ms = (r as any).moderation_status as string | undefined;
+    if (!r.active && ms && ms !== 'approved') {
+      (base as any).review_status = 'pending_review';
+    }
     return base as ProductSummary;
   }));
   const { q, status, mode, min_discount } = params;
