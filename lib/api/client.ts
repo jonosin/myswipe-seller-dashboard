@@ -6,7 +6,6 @@ const BASE = process.env.NEXT_PUBLIC_API_BASE_URL as string;
 if (!BASE) {
   throw new Error("Missing NEXT_PUBLIC_API_BASE_URL");
 }
-const ADMIN_SECRET = (process.env.NEXT_PUBLIC_ADMIN_SECRET || (process.env as any).ADMIN_SECRET) as string | undefined;
 
 export async function apiFetch(path: string, init?: RequestInit & { json?: any }) {
   const url = `${BASE}${path}`;
@@ -17,7 +16,6 @@ export async function apiFetch(path: string, init?: RequestInit & { json?: any }
   };
   if (init?.json !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (ADMIN_SECRET) headers["X-Admin-Secret"] = ADMIN_SECRET;
   let res: Response;
   try {
     res = await fetch(url, {
