@@ -140,7 +140,10 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
     };
     (base as any).has_video = hasVideo;
     const ms = (r as any).moderation_status as string | undefined;
-    if (!r.active && ms && ms !== 'approved') {
+    if (ms === 'rejected') {
+      (base as any).review_status = 'rejected';
+      if (typeof (r as any).rejected_reason === 'string') (base as any).rejected_reason = (r as any).rejected_reason;
+    } else if (!r.active && ms && ms !== 'approved') {
       (base as any).review_status = 'pending_review';
     }
     return base as ProductSummary;
@@ -152,7 +155,8 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
   }
   if (status === "active") mapped = mapped.filter((p) => p.active);
   if (status === "pending_review") mapped = mapped.filter((p: any) => (!p.active) && ((p as any).review_status === "pending_review"));
-  if (status === "draft") mapped = mapped.filter((p: any) => (!p.active) && ((p as any).review_status !== "pending_review"));
+  if (status === "rejected") mapped = mapped.filter((p: any) => ((p as any).review_status === "rejected"));
+  if (status === "draft") mapped = mapped.filter((p: any) => (!p.active) && ((p as any).review_status !== "pending_review") && ((p as any).review_status !== "rejected"));
   if (mode === "deal") mapped = mapped.filter((p) => p.mode === "deal");
   if (mode === "discover") mapped = mapped.filter((p) => p.mode === "discover");
   if (typeof min_discount === "number") mapped = mapped.filter((p) => (p.deal_percent ?? 0) >= min_discount);

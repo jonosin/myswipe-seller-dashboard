@@ -60,14 +60,15 @@ export type ProductSummary = {
   price_minor: number;
   currency: Currency;
   mode: "discover" | "deal"; // derive from deal_active
-  review_status?: "pending_review"; // optional pending state
+  review_status?: "pending_review" | "rejected"; // optional moderation state
+  rejected_reason?: string;
   coupon_code?: string;
   is_swipe_hour?: boolean;
 };
 
 export type ListProductsParams = {
   q?: string;
-  status?: "active" | "pending_review" | "draft";
+  status?: "active" | "pending_review" | "rejected" | "draft";
   mode?: "discover" | "deal";
   min_discount?: number;
   page?: number;

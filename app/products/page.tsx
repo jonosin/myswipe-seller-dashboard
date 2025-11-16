@@ -196,7 +196,7 @@ export default function ProductsPage() {
 
       <div className="mb-3">
         <div role="tablist" aria-label="Product status" className="inline-flex rounded-lg border border-neutral-300 overflow-hidden">
-          {["all", "active", "pending"].map((t0) => (
+          {["all", "active", "pending", "rejected"].map((t0) => (
             <button
               key={t0}
               role="tab"
@@ -204,7 +204,7 @@ export default function ProductsPage() {
               onClick={() => productSetFilters({ productStatus: t0 as any, productPage: 1 })}
               className={cn("px-3 py-1.5 text-sm border-r last:border-r-0 border-neutral-300", productStatus === t0 && "bg-neutral-100")}
             >
-              {t0 === "all" ? t("products.tabs.all") : t0 === "active" ? t("products.tabs.active") : t("products.tabs.pending")}
+              {t0 === "all" ? t("products.tabs.all") : t0 === "active" ? t("products.tabs.active") : t0 === "pending" ? t("products.tabs.pending") : t("products.tabs.rejected")}
             </button>
           ))}
         </div>
@@ -214,6 +214,13 @@ export default function ProductsPage() {
         <div className="card p-3 mb-4 text-sm">
           <div className="font-medium mb-1">{t("products.pendingTitle")}</div>
           <p>{t("products.pendingDesc")}</p>
+        </div>
+      )}
+
+      {productStatus === "rejected" && (
+        <div className="card p-3 mb-4 text-sm">
+          <div className="font-medium mb-1">{t("products.rejectedTitle")}</div>
+          <p>{t("products.rejectedDesc")}</p>
         </div>
       )}
 
@@ -352,7 +359,11 @@ export default function ProductsPage() {
             } },
             { key: "discount", header: t("products.columns.discount"), render: (p: ProductSummary) => (p.deal_active && typeof p.deal_percent === "number" ? `-${p.deal_percent}%` : "-"), align: "right" },
             { key: "coupon", header: t("products.columns.coupon"), render: (p: ProductSummary) => (p.coupon_code ? p.coupon_code : "-") },
-            { key: "status", header: t("products.columns.status"), render: (p: ProductSummary) => <StatusBadge status={p.active ? "active" : (p.review_status === "pending_review" ? "pending_review" : "draft")} /> },
+            { key: "status", header: t("products.columns.status"), render: (p: ProductSummary) => {
+              const st = p.active ? "active" : (p.review_status === "rejected" ? "rejected" : (p.review_status === "pending_review" ? "pending_review" : "draft"));
+              return <StatusBadge status={st} />;
+            } },
+            ...(productStatus === "rejected" ? [{ key: "reason", header: t("products.columns.reason"), render: (p: ProductSummary) => ((p as any).rejected_reason || "-") }] as any[] : []),
           ]}
           rows={paged}
           page={productPage}

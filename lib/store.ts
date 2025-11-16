@@ -20,7 +20,7 @@ type LangState = {
 
 type ProductFiltersState = {
   productSearch: string;
-  productStatus: "all" | "active" | "pending";
+  productStatus: "all" | "active" | "pending" | "rejected";
   productCategory: string | "all";
   productMode: "all" | "discover" | "deal";
   productMinDiscount?: number;
