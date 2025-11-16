@@ -2,7 +2,9 @@
 
 import { supabase } from "@/lib/supabase";
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL as string;
+const BYPASS = process.env.NEXT_PUBLIC_DEV_BYPASS_AUTH === "true";
+const DEFAULT_BASE = "https://myswipes-backend.onrender.com";
+const BASE = (process.env.NEXT_PUBLIC_API_BASE_URL as string) || (BYPASS ? DEFAULT_BASE : "");
 if (!BASE) {
   throw new Error("Missing NEXT_PUBLIC_API_BASE_URL");
 }

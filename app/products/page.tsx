@@ -17,6 +17,7 @@ import { useAppStore } from "@/lib/store";
 import ConfirmDialog from "@/components/confirm-dialog";
 import { toast } from "@/components/toast";
 import Image from "next/image";
+import { useT } from "@/lib/i18n";
 
 export default function ProductsPage() {
   const [rows, setRows] = useState<ProductSummary[]>([]);
@@ -30,7 +31,6 @@ export default function ProductsPage() {
   const [btnEl, setBtnEl] = useState<HTMLButtonElement | null>(null);
   const [panelEl, setPanelEl] = useState<HTMLDivElement | null>(null);
   const [total, setTotal] = useState(0);
-  const [sellerStatus, setSellerStatus] = useState<"pending"|"approved"|"disabled">("approved");
 
   // Lightbox for thumbnails
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -39,6 +39,7 @@ export default function ProductsPage() {
   const [lightboxReturnEl, setLightboxReturnEl] = useState<HTMLElement | null>(null);
   const touchStartX = useRef<number | null>(null);
   const touchDeltaX = useRef<number>(0);
+  const { t } = useT();
 
   const {
     productSearch, productStatus, productCategory, productMode, productMinDiscount, productPage, productPageSize,
@@ -59,7 +60,7 @@ export default function ProductsPage() {
     setLoading(true);
     const params = {
       q: productSearch || undefined,
-      status: productStatus === "all" ? undefined : (productStatus as any),
+      status: productStatus === "all" ? undefined : (productStatus === "pending" ? ("pending_review" as any) : (productStatus as any)),
       mode: productMode === "all" ? undefined : (productMode as any),
       min_discount: productMode === "deal" ? productMinDiscount : undefined,
       page: productPage,
@@ -77,12 +78,7 @@ export default function ProductsPage() {
     return () => { mounted = false; };
   }, [productSearch, productStatus, productMode, productMinDiscount, productPage, productPageSize]);
 
-  // Fetch seller status to gate create/edit
-  useEffect(() => {
-    let mounted = true;
-    getSellerStatus().then((res) => { if (mounted) setSellerStatus(res.status); }).catch(()=>{});
-    return () => { mounted = false; };
-  }, []);
+  
 
   // Category filtering removed from Products tab UI
 
@@ -137,10 +133,10 @@ export default function ProductsPage() {
   const onDeleteSelected = async () => {
     const ids = Array.from(selected);
     for (const id of ids) await removeProduct(id);
-    toast.success(`Deleted ${ids.length} product${ids.length !== 1 ? "s" : ""}`);
+    toast.success(t("products.toasts.deleted", { count: ids.length }));
     const resp = await listProducts({
       q: productSearch || undefined,
-      status: productStatus === "all" ? undefined : (productStatus as any),
+      status: productStatus === "all" ? undefined : (productStatus === "pending" ? ("pending_review" as any) : (productStatus as any)),
       mode: productMode === "all" ? undefined : (productMode as any),
       min_discount: productMode === "deal" ? productMinDiscount : undefined,
       page: productPage,
@@ -156,17 +152,17 @@ export default function ProductsPage() {
     <div>
       <Breadcrumbs />
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl">Products</h1>
+        <h1 className="text-2xl">{t("products.title")}</h1>
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
             <>
               <button onClick={async () => {
                 const ids = Array.from(selected);
                 for (const id of ids) await submitProductForReview(id);
-                toast.success(`Submitted ${ids.length} for review`);
+                toast.success(t("products.toasts.submitted", { count: ids.length }));
                 const resp = await listProducts({
                   q: productSearch || undefined,
-                  status: productStatus === "all" ? undefined : (productStatus as any),
+                  status: productStatus === "all" ? undefined : (productStatus === "pending" ? ("pending_review" as any) : (productStatus as any)),
                   mode: productMode === "all" ? undefined : (productMode as any),
                   min_discount: productMode === "deal" ? productMinDiscount : undefined,
                   page: productPage,
@@ -174,49 +170,58 @@ export default function ProductsPage() {
                 });
                 setRows(resp.items); setTotal(resp.total);
                 setSelected(new Set());
-              }} className="rounded-md border border-neutral-300 px-3 py-2 text-sm">Submit for review</button>
-              <button onClick={() => setConfirmOpen(true)} className="rounded-md border border-neutral-300 px-3 py-2 text-sm">Delete selected</button>
+              }} className="rounded-md border border-neutral-300 px-3 py-2 text-sm">{t("products.buttons.submitReview")}</button>
+              <button onClick={() => setConfirmOpen(true)} className="rounded-md border border-neutral-300 px-3 py-2 text-sm">{t("products.buttons.deleteSelected")}</button>
             </>
           )}
           <button onClick={async () => {
             try {
               const res = await getSellerStatus();
-              if (res.status === "disabled") { toast.error("Your seller account is disabled."); return; }
-              if (res.status === "pending") {
-                toast.info("Account pending. You can create drafts but some actions may be limited.");
-              }
+              if (res.status === "disabled") { toast.error(t("products.toasts.accountDisabled")); return; }
             } catch (e: any) {
-              toast.error("Could not verify seller status. Opening draft form.");
+              toast.error(t("products.toasts.verifyOpenForm"));
             }
             setEditProduct(null); setOpenForm(true);
-          }} className="rounded-md border border-neutral-900 bg-neutral-900 text-white px-3 py-2 text-sm">Add Product</button>
+          }} className="rounded-md border border-neutral-900 bg-neutral-900 text-white px-3 py-2 text-sm">{t("products.buttons.addProduct")}</button>
         </div>
       </div>
 
-      {sellerStatus === "pending" && (
-        <div role="alert" className="card p-3 mb-3 border border-neutral-300 bg-neutral-50 text-sm">
-          Your seller status is pending. You can draft products but cannot submit edits until verification is complete.
-        </div>
-      )}
+      <div className="card p-3 mb-4 text-sm">
+        <div className="font-medium mb-1">{t("products.modesTitle")}</div>
+        <p className="mb-1">{t("products.discover")}</p>
+        <p className="mb-1">{t("products.deals")}</p>
+        <p>{t("products.viewDeals")} <a href="https://myswipes.app/deals" target="_blank" rel="noreferrer" className="underline">myswipes.app/deals</a>.</p>
+      </div>
+
+      
 
       <div className="mb-3">
         <div role="tablist" aria-label="Product status" className="inline-flex rounded-lg border border-neutral-300 overflow-hidden">
-          {["all", "active", "draft"].map((t) => (
+          {["all", "active", "pending"].map((t0) => (
             <button
-              key={t}
+              key={t0}
               role="tab"
-              aria-selected={productStatus === t}
-              onClick={() => productSetFilters({ productStatus: t as any, productPage: 1 })}
-              className={cn("px-3 py-1.5 text-sm border-r last:border-r-0 border-neutral-300", productStatus === t && "bg-neutral-100")}
-            >{t.charAt(0).toUpperCase() + t.slice(1)}</button>
+              aria-selected={productStatus === t0}
+              onClick={() => productSetFilters({ productStatus: t0 as any, productPage: 1 })}
+              className={cn("px-3 py-1.5 text-sm border-r last:border-r-0 border-neutral-300", productStatus === t0 && "bg-neutral-100")}
+            >
+              {t0 === "all" ? t("products.tabs.all") : t0 === "active" ? t("products.tabs.active") : t("products.tabs.pending")}
+            </button>
           ))}
         </div>
       </div>
 
+      {productStatus === "pending" && (
+        <div className="card p-3 mb-4 text-sm">
+          <div className="font-medium mb-1">{t("products.pendingTitle")}</div>
+          <p>{t("products.pendingDesc")}</p>
+        </div>
+      )}
+
       <div className="card p-3 mb-4 flex flex-wrap items-center gap-2">
         <div className="flex-1 min-w-[200px]">
           <label htmlFor="search" className="sr-only">Search</label>
-          <input id="search" value={productSearch} onChange={(e) => productSetFilters({ productSearch: e.target.value, productPage: 1 })} placeholder="Search by name" className="w-full rounded-md border border-neutral-300 px-3 py-2" />
+          <input id="search" value={productSearch} onChange={(e) => productSetFilters({ productSearch: e.target.value, productPage: 1 })} placeholder={t("products.searchPlaceholder")} className="w-full rounded-md border border-neutral-300 px-3 py-2" />
         </div>
         <div className="relative">
           <button
@@ -227,27 +232,27 @@ export default function ProductsPage() {
             className="inline-flex items-center gap-1 rounded-md border border-neutral-300 px-3 py-2"
           >
             <Filter size={14} />
-            {activeFiltersCount > 0 ? `Filters (${activeFiltersCount})` : "Filters"}
+            {activeFiltersCount > 0 ? `${t("products.filters.title")} (${activeFiltersCount})` : t("products.filters.title")}
           </button>
           {filtersOpen && (
             <div
               role="dialog"
-              aria-label="Filters"
+              aria-label={t("products.filters.title")}
               ref={setPanelEl}
               className="absolute right-0 z-50 mt-2 w-64 rounded-md border border-neutral-200 bg-white p-3 shadow-card pointer-events-auto"
               onKeyDown={(e) => { if (e.key === "Escape") { setFiltersOpen(false); btnEl?.focus(); } }}
             >
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="flt-mode">Mode</label>
+                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="flt-mode">{t("products.filters.mode")}</label>
                   <select id="flt-mode" value={productMode} onChange={(e) => productSetFilters({ productMode: e.target.value as any, productPage: 1 })} className="w-full rounded-md border border-neutral-300 px-3 py-2">
                     {(["all", "discover", "deal"] as const).map((m) => (
-                      <option key={m} value={m}>{String(m).charAt(0).toUpperCase() + String(m).slice(1)}</option>
+                      <option key={m} value={m}>{m === "all" ? t("products.tabs.all") : m === "discover" ? t("products.modeLabels.discover") : t("products.modeLabels.deal")}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="flt-minDiscount">Min discount</label>
+                  <label className="block text-sm text-neutral-700 mb-1" htmlFor="flt-minDiscount">{t("products.filters.minDiscount")}</label>
                   <input
                     id="flt-minDiscount"
                     type="number"
@@ -268,7 +273,7 @@ export default function ProductsPage() {
                   <span id="flt-minDiscount-desc" className="sr-only">Enter minimum discount percentage from 0 to 90</span>
                 </div>
                 <div className="flex justify-end gap-2">
-                  <button className="rounded-md border border-neutral-300 px-3 py-1 text-sm" onClick={() => { setFiltersOpen(false); btnEl?.focus(); }}>Close</button>
+                  <button className="rounded-md border border-neutral-300 px-3 py-1 text-sm" onClick={() => { setFiltersOpen(false); btnEl?.focus(); }}>{t("products.buttons.close")}</button>
                 </div>
               </div>
             </div>
@@ -277,7 +282,7 @@ export default function ProductsPage() {
         <div>
           <label className="sr-only" htmlFor="pageSize">Page size</label>
           <select id="pageSize" value={productPageSize} onChange={(e) => productSetFilters({ productPageSize: Number(e.target.value), productPage: 1 })} className="rounded-md border border-neutral-300 px-3 py-2">
-            {[10, 20, 50].map((n) => <option key={n} value={n}>{n} / page</option>)}
+            {[10, 20, 50].map((n) => <option key={n} value={n}>{t("products.filters.pageSize", { n })}</option>)}
           </select>
         </div>
       </div>
@@ -336,19 +341,19 @@ export default function ProductsPage() {
                   )}
                   <span className="truncate max-w-[12rem] sm:max-w-[20rem]">{p.title}</span>
                   {(p.mode ?? "discover") === "deal" && (
-                    <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium">DEAL</span>
+                    <span className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium">{t("products.dealTag")}</span>
                   )}
                 </div>
               );
             } },
-            { key: "price", header: "Price", render: (p: ProductSummary) => formatTHBCompact(p.price_minor), align: "right" },
-            { key: "mode", header: "Mode", render: (p: ProductSummary) => {
+            { key: "price", header: t("products.columns.price"), render: (p: ProductSummary) => formatTHBCompact(p.price_minor), align: "right" },
+            { key: "mode", header: t("products.columns.mode"), render: (p: ProductSummary) => {
               const label = p.mode ?? "discover";
               return label.charAt(0).toUpperCase() + label.slice(1);
             } },
-            { key: "discount", header: "Discount", render: (p: ProductSummary) => (p.deal_active && typeof p.deal_percent === "number" ? `-${p.deal_percent}%` : "-"), align: "right" },
-            { key: "coupon", header: "Coupon", render: (p: ProductSummary) => (p.coupon_code ? p.coupon_code : "-") },
-            { key: "status", header: "Status", render: (p: ProductSummary) => <StatusBadge status={p.active ? "active" : (p.review_status === "pending_review" ? "pending_review" : "draft")} /> },
+            { key: "discount", header: t("products.columns.discount"), render: (p: ProductSummary) => (p.deal_active && typeof p.deal_percent === "number" ? `-${p.deal_percent}%` : "-"), align: "right" },
+            { key: "coupon", header: t("products.columns.coupon"), render: (p: ProductSummary) => (p.coupon_code ? p.coupon_code : "-") },
+            { key: "status", header: t("products.columns.status"), render: (p: ProductSummary) => <StatusBadge status={p.active ? "active" : (p.review_status === "pending_review" ? "pending_review" : "draft")} /> },
           ]}
           rows={paged}
           page={productPage}
@@ -358,10 +363,9 @@ export default function ProductsPage() {
           onRowClick={async (p) => {
             try {
               const res = await getSellerStatus();
-              if (res.status === "disabled") { toast.error("Account disabled."); return; }
-              if (res.status === "pending") { toast.info("Account pending. Editing is allowed but some actions may be limited."); }
+              if (res.status === "disabled") { toast.error(t("products.toasts.accountDisabled")); return; }
             } catch {
-              toast.error("Could not verify seller status. Attempting to open editor.");
+              toast.error(t("products.toasts.verifyOpenEditor"));
             }
             try {
               const full = await getProduct(p.id);
@@ -389,20 +393,20 @@ export default function ProductsPage() {
               setEditProduct(mapped);
               setOpenForm(true);
             } catch (e) {
-              toast.error("Failed to open product");
+              toast.error(t("products.toasts.openFailed"));
             }
           }}
         />
       )}
 
       {!loading && filtered.length === 0 && (
-        <div className="text-sm text-neutral-600 mt-3">No products found.</div>
+        <div className="text-sm text-neutral-600 mt-3">{t("products.none")}</div>
       )}
 
       <ProductForm open={openForm} onOpenChange={setOpenForm} initial={editProduct} onSaved={async () => {
         const resp = await listProducts({
           q: productSearch || undefined,
-          status: productStatus === "all" ? undefined : (productStatus as any),
+          status: productStatus === "all" ? undefined : (productStatus === "pending" ? ("pending_review" as any) : (productStatus as any)),
           mode: productMode === "all" ? undefined : (productMode as any),
           min_discount: productMode === "deal" ? productMinDiscount : undefined,
           page: productPage,
@@ -412,7 +416,7 @@ export default function ProductsPage() {
         setTotal(resp.total);
       }} />
 
-      <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title="Delete selected" description="This will remove the selected products." onConfirm={onDeleteSelected} />
+      <ConfirmDialog open={confirmOpen} onOpenChange={setConfirmOpen} title={t("products.confirmDelete.title")} description={t("products.confirmDelete.desc")} onConfirm={onDeleteSelected} />
 
       <Dialog.Root open={lightboxOpen} onOpenChange={(o) => { setLightboxOpen(o); if (!o) { lightboxReturnEl?.focus(); } }}>
         <Dialog.Portal>

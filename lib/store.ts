@@ -13,9 +13,14 @@ type UIState = {
   toggleSidebar: () => void;
 };
 
+type LangState = {
+  lang: "en" | "th";
+  setLang: (l: "en" | "th") => void;
+};
+
 type ProductFiltersState = {
   productSearch: string;
-  productStatus: "all" | "active" | "draft";
+  productStatus: "all" | "active" | "pending";
   productCategory: string | "all";
   productMode: "all" | "discover" | "deal";
   productMinDiscount?: number;
@@ -58,7 +63,7 @@ type ShippingState = {
   setProfiles: (p: ShippingProfile[]) => void;
 };
 
-export type AppState = AuthState & UIState & ProductFiltersState & OrderFiltersState & OnboardingState & SettingsState & ShippingState;
+export type AppState = AuthState & UIState & LangState & ProductFiltersState & OrderFiltersState & OnboardingState & SettingsState & ShippingState;
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -69,6 +74,9 @@ export const useAppStore = create<AppState>()(
 
       sidebarOpen: true,
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+
+      lang: "th",
+      setLang: (l) => set({ lang: l }),
 
       productSearch: "",
       productStatus: "all",
@@ -119,6 +127,7 @@ export const useAppStore = create<AppState>()(
       storage: createJSONStorage(() => sessionStorage),
       partialize: (s) => ({
         isAuthenticated: s.isAuthenticated,
+        lang: s.lang,
         identityVerified: s.identityVerified,
         bankLinked: s.bankLinked,
         taxProvided: s.taxProvided,

@@ -9,10 +9,12 @@ import type { ProductSummary } from "@/types/product";
 import { formatTHBCompact } from "@/lib/utils";
 import { toast } from "@/components/toast";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useT } from "@/lib/i18n";
 
 export default function BoostsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useT();
   const [products, setProducts] = useState<ProductSummary[]>([]);
   const [boosts, setBoosts] = useState<Boost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,6 +24,8 @@ export default function BoostsPage() {
 
   const productMap = useMemo(() => new Map(products.map(p => [p.id, p])), [products]);
   const activeProductIds = useMemo(() => new Set(boosts.filter(b => b.status === "active").map(b => b.product_id)), [boosts]);
+  const liveBoosts = useMemo(() => boosts.filter(b => b.status === "active"), [boosts]);
+  const expiredBoosts = useMemo(() => boosts.filter(b => b.status !== "active"), [boosts]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -54,7 +58,7 @@ export default function BoostsPage() {
           const res = await activateBoostsFromSession(sid);
           const ok = (res.created || []).filter(x => x.status === "active").length;
           if (ok > 0) {
-            toast.success(`Activated ${ok} boost${ok !== 1 ? "s" : ""}`);
+            toast.success(t("boosts.toasts.activated", { count: ok }));
             await loadAll();
             setActivating(false);
             // Clean the URL
@@ -62,13 +66,13 @@ export default function BoostsPage() {
             return;
           }
           // No active created: may have been already active elsewhere
-          toast.info("No boosts activated (may have been activated already)");
+          toast.info(t("boosts.toasts.noActivated"));
           await loadAll();
           setActivating(false);
           if (typeof window !== 'undefined') window.history.replaceState({}, "", "/boosts");
         } catch (e: any) {
           // For async methods, payment may not be confirmed yet; retry for up to ~2 minutes
-          if (attempts === 1) toast.info("Waiting for payment confirmation...");
+          if (attempts === 1) toast.info(t("boosts.toasts.waitingPayment"));
           if (attempts < 24) {
             setTimeout(tryActivate, 5000);
           } else {
@@ -82,7 +86,7 @@ export default function BoostsPage() {
       };
       tryActivate();
     }
-  }, [searchParams]);
+  }, [searchParams, activating, t]);
 
   // Also poll the boosts list briefly after checkout success to reflect webhook activation even if manual activation fails
   useEffect(() => {
@@ -110,14 +114,14 @@ export default function BoostsPage() {
 
   const onCreate = async () => {
     const ids = Array.from(selected).filter(id => !activeProductIds.has(id));
-    if (!ids.length) { toast.info("Select at least 1 eligible product"); return; }
+    if (!ids.length) { toast.info(t("boosts.toasts.selectOne")); return; }
     try {
       const res = await createBoostCheckout(ids);
       if ((res as any)?.url) {
         window.location.assign((res as any).url);
         return;
       }
-      toast.error("Checkout link not available");
+      toast.error(t("boosts.toasts.checkoutMissing"));
     } catch (e: any) {
       toast.error(String(e?.message || e));
     }
@@ -126,7 +130,7 @@ export default function BoostsPage() {
   const onCancel = async (id: string) => {
     try {
       await cancelBoost(id);
-      toast.success("Boost cancelled");
+      toast.success(t("boosts.toasts.cancelled"));
       await loadAll();
     } catch (e: any) {
       toast.error(String(e?.message || e));
@@ -137,21 +141,27 @@ export default function BoostsPage() {
     <div>
       <Breadcrumbs />
       <div className="mb-4">
-        <h1 className="text-2xl">Boosts</h1>
+        <h1 className="text-2xl">{t("boosts.title")}</h1>
+      </div>
+
+      <div className="card p-4 mb-4 space-y-2">
+        <div className="text-base font-medium">{t("boosts.whatIs")}</div>
+        <p className="text-sm">{t("boosts.whatIsLine1")}</p>
+        <p className="text-sm">{t("boosts.whatIsLine2", { price: formatTHBCompact(199900) })}</p>
       </div>
 
       <div className="card p-3 mb-4 text-sm">
-        <div className="font-medium mb-1">Promote a product</div>
-        <div className="mb-3">3 days • {formatTHBCompact(199900)} per product</div>
+        <div className="font-medium mb-1">{t("boosts.promote")}</div>
+        <div className="mb-3">{t("boosts.perProduct", { price: formatTHBCompact(199900) })}</div>
         <div className="flex flex-col gap-2">
           <div className="max-h-56 overflow-auto border rounded">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-neutral-50">
                   <th className="text-left px-3 py-2 w-10"></th>
-                  <th className="text-left px-3 py-2">Product</th>
-                  <th className="text-left px-3 py-2">Price</th>
-                  <th className="text-left px-3 py-2">Status</th>
+                  <th className="text-left px-3 py-2">{t("boosts.product")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.price")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.status")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -164,45 +174,44 @@ export default function BoostsPage() {
                       </td>
                       <td className="px-3 py-2">{p.title}</td>
                       <td className="px-3 py-2">{formatTHBCompact(p.price_minor)}</td>
-                      <td className="px-3 py-2">{disabled ? "Boosting" : (p.active ? "Active" : "Draft")}</td>
+                      <td className="px-3 py-2">{disabled ? t("boosts.boosting") : (p.active ? t("status.active") : t("status.draft"))}</td>
                     </tr>
                   );
                 })}
                 {selectable.length === 0 && (
-                  <tr><td className="px-3 py-3" colSpan={4}>No eligible products</td></tr>
+                  <tr><td className="px-3 py-3" colSpan={4}>{t("boosts.noEligible")}</td></tr>
                 )}
               </tbody>
             </table>
           </div>
           <div>
-            <button onClick={onCreate} disabled={selected.size === 0} className="rounded-md border border-neutral-900 bg-neutral-900 text-white px-3 py-2 text-sm disabled:opacity-50">Checkout to Boost</button>
+            <button onClick={onCreate} disabled={selected.size === 0} className="rounded-md border border-neutral-900 bg-neutral-900 text-white px-3 py-2 text-sm disabled:opacity-50">{t("boosts.checkout")}</button>
           </div>
         </div>
       </div>
 
-      <div className="card p-3">
-        <div className="font-medium mb-2">Your boosts</div>
+      <div className="card p-3 mb-4">
+        <div className="font-medium mb-2">{t("boosts.live")}</div>
         {loading ? (
-          <div className="text-sm">Loading...</div>
-        ) : boosts.length === 0 ? (
-          <div className="text-sm">No boosts yet.</div>
+          <div className="text-sm">{t("boosts.loading")}</div>
+        ) : liveBoosts.length === 0 ? (
+          <div className="text-sm">{t("boosts.noLive")}</div>
         ) : (
           <div className="overflow-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-neutral-50">
-                  <th className="text-left px-3 py-2">Product</th>
-                  <th className="text-left px-3 py-2">Start</th>
-                  <th className="text-left px-3 py-2">End</th>
-                  <th className="text-left px-3 py-2">Status</th>
-                  <th className="text-left px-3 py-2">Price</th>
-                  <th className="text-right px-3 py-2">Actions</th>
+                  <th className="text-left px-3 py-2">{t("boosts.product")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.start")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.end")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.status")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.price")}</th>
+                  <th className="text-right px-3 py-2">{t("common.actions")}</th>
                 </tr>
               </thead>
               <tbody>
-                {boosts.map(b => {
+                {liveBoosts.map(b => {
                   const p = productMap.get(b.product_id);
-                  const canCancel = b.status === "active";
                   return (
                     <tr key={b.id} className="border-t">
                       <td className="px-3 py-2">{p?.title || b.product_id}</td>
@@ -211,8 +220,45 @@ export default function BoostsPage() {
                       <td className="px-3 py-2">{b.status}</td>
                       <td className="px-3 py-2">{formatTHBCompact(b.price_minor)}</td>
                       <td className="px-3 py-2 text-right">
-                        <button disabled={!canCancel} onClick={() => setConfirmId(b.id)} className="rounded-md border px-2 py-1 text-xs disabled:opacity-50">Cancel</button>
+                        <button onClick={() => setConfirmId(b.id)} className="rounded-md border px-2 py-1 text-xs">{t("boosts.cancel")}</button>
                       </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-3">
+        <div className="font-medium mb-2">{t("boosts.previous")}</div>
+        {loading ? (
+          <div className="text-sm">{t("boosts.loading")}</div>
+        ) : expiredBoosts.length === 0 ? (
+          <div className="text-sm">{t("boosts.noPrev")}</div>
+        ) : (
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-neutral-50">
+                  <th className="text-left px-3 py-2">{t("boosts.product")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.start")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.end")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.status")}</th>
+                  <th className="text-left px-3 py-2">{t("boosts.price")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expiredBoosts.map(b => {
+                  const p = productMap.get(b.product_id);
+                  return (
+                    <tr key={b.id} className="border-t">
+                      <td className="px-3 py-2">{p?.title || b.product_id}</td>
+                      <td className="px-3 py-2">{new Date(b.start_at).toLocaleString()}</td>
+                      <td className="px-3 py-2">{new Date(b.end_at).toLocaleString()}</td>
+                      <td className="px-3 py-2">{b.status}</td>
+                      <td className="px-3 py-2">{formatTHBCompact(b.price_minor)}</td>
                     </tr>
                   );
                 })}
@@ -225,8 +271,8 @@ export default function BoostsPage() {
       <ConfirmDialog
         open={!!confirmId}
         onOpenChange={(o) => { if (!o) setConfirmId(null); }}
-        title="Cancel boost"
-        description="This will stop the boost immediately."
+        title={t("boosts.cancelConfirm.title")}
+        description={t("boosts.cancelConfirm.desc")}
         onConfirm={async () => { if (confirmId) { await onCancel(confirmId); setConfirmId(null); } }}
       />
     </div>

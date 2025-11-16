@@ -1,6 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
+import { useT } from "@/lib/i18n";
 
 type Props = {
   open: boolean;
@@ -12,7 +13,10 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 };
 
-export default function ConfirmDialog({ open, title, description, confirmText = "Confirm", cancelText = "Cancel", onConfirm, onOpenChange }: Props) {
+export default function ConfirmDialog({ open, title, description, confirmText, cancelText, onConfirm, onOpenChange }: Props) {
+  const { t } = useT();
+  const confirm = confirmText || t("common.confirm");
+  const cancel = cancelText || t("common.cancel");
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -22,9 +26,9 @@ export default function ConfirmDialog({ open, title, description, confirmText = 
           {description && <Dialog.Description className="mt-2 text-sm text-neutral-700">{description}</Dialog.Description>}
           <div className="mt-4 flex justify-end gap-2">
             <Dialog.Close asChild>
-              <button className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm">{cancelText}</button>
+              <button className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm">{cancel}</button>
             </Dialog.Close>
-            <button className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-sm text-white" onClick={onConfirm}>{confirmText}</button>
+            <button className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-sm text-white" onClick={onConfirm}>{confirm}</button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

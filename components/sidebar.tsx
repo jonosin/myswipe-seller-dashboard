@@ -5,17 +5,18 @@ import { usePathname } from "next/navigation";
 import { useAppStore } from "@/lib/store";
 import { Package, Settings, BarChart3, Rocket } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const links = [
-  { href: "/products", label: "Products", icon: Package },
-  { href: "/boosts", label: "Boosts", icon: Rocket },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+import { useT } from "@/lib/i18n";
 
 export default function Sidebar() {
   const pathname = usePathname();
   const open = useAppStore((s) => s.sidebarOpen);
+  const { t } = useT();
+  const links = [
+    { href: "/products", label: t("nav.products"), icon: Package },
+    { href: "/boosts", label: t("nav.boosts"), icon: Rocket },
+    { href: "/analytics", label: t("nav.analytics"), icon: BarChart3 },
+    { href: "/settings", label: t("nav.settings"), icon: Settings },
+  ];
 
   if (pathname === "/login") return null;
 

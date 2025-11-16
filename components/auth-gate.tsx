@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { Session, AuthChangeEvent } from "@supabase/supabase-js";
 import { ensureSeller } from "@/lib/api/seller";
+import { useT } from "@/lib/i18n";
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -11,9 +12,18 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
   const [sellerEnsured, setSellerEnsured] = useState(false);
+  const { t } = useT();
 
   useEffect(() => {
     let mounted = true;
+    const BYPASS = process.env.NEXT_PUBLIC_DEV_BYPASS_AUTH === "true";
+    if (BYPASS) {
+      if (mounted) {
+        setHasSession(true);
+        setReady(true);
+      }
+      return () => { mounted = false; };
+    }
     supabase.auth
       .getSession()
       .then(async ({ data }: { data: { session: Session | null } }) => {
@@ -41,13 +51,15 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!ready) return;
+    const BYPASS = process.env.NEXT_PUBLIC_DEV_BYPASS_AUTH === "true";
+    if (BYPASS) return;
     const isAuthRoute = pathname === "/login" || pathname === "/auth/callback";
     if (!isAuthRoute && !hasSession) router.replace("/login");
     if (isAuthRoute && hasSession) router.replace("/products");
   }, [ready, hasSession, pathname, router]);
 
   const isAuthRoute = pathname === "/login" || pathname === "/auth/callback";
-  if (!ready) return <div className="p-6">Loading…</div>;
-  if (!isAuthRoute && !hasSession) return <div className="p-6">Redirecting…</div>;
+  if (!ready) return <div className="p-6">{t("common.loading")}</div>;
+  if (!isAuthRoute && !hasSession) return <div className="p-6">{t("common.redirecting")}</div>;
   return <>{children}</>;
 }

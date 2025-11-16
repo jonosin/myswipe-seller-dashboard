@@ -151,7 +151,8 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
     mapped = mapped.filter((p) => p.title.toLowerCase().includes(qq));
   }
   if (status === "active") mapped = mapped.filter((p) => p.active);
-  if (status === "draft") mapped = mapped.filter((p) => !p.active);
+  if (status === "pending_review") mapped = mapped.filter((p: any) => (!p.active) && ((p as any).review_status === "pending_review"));
+  if (status === "draft") mapped = mapped.filter((p: any) => (!p.active) && ((p as any).review_status !== "pending_review"));
   if (mode === "deal") mapped = mapped.filter((p) => p.mode === "deal");
   if (mode === "discover") mapped = mapped.filter((p) => p.mode === "discover");
   if (typeof min_discount === "number") mapped = mapped.filter((p) => (p.deal_percent ?? 0) >= min_discount);
