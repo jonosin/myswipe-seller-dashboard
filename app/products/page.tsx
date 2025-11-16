@@ -189,8 +189,7 @@ export default function ProductsPage() {
       <div className="card p-3 mb-4 text-sm">
         <div className="font-medium mb-1">{t("products.modesTitle")}</div>
         <p className="mb-1">{t("products.discover")}</p>
-        <p className="mb-1">{t("products.deals")}</p>
-        <p>{t("products.viewDeals")} <a href="https://myswipes.app/deals" target="_blank" rel="noreferrer" className="underline">myswipes.app/deals</a>.</p>
+        <p>{t("products.deals")}</p>
       </div>
 
       

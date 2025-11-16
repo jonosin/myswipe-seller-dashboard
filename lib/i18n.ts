@@ -111,7 +111,6 @@ const dict: Record<Lang, Dict> = {
       modesTitle: "Listing modes: Discover vs Deals",
       discover: "Discover shows your products in shoppers' personalized feed throughout the day. Use Discover to build steady exposure over time.",
       deals: "Deals is a 1-hour daily window where discounted products are featured prominently. Aim for high discounts to maximize visibility. If you have a coupon, add it so buyers can apply it at checkout.",
-      viewDeals: "View the Deals page to see how discounted items are showcased:",
       tabs: {
         all: "All",
         active: "Active",
@@ -281,7 +280,6 @@ const dict: Record<Lang, Dict> = {
       modesTitle: "โหมดการแสดง: ดิสคัฟเวอร์ vs ดีล",
       discover: "ดิสคัฟเวอร์จะแสดงสินค้าในฟีดส่วนบุคคลของผู้ซื้อทั้งวัน เหมาะสำหรับสร้างการมองเห็นอย่างต่อเนื่อง",
       deals: "ดีลคือช่วงเวลา 1 ชั่วโมงต่อวัน ที่สินค้าลดราคาจะถูกนำเสนอเด่นเป็นพิเศษ ควรตั้งส่วนลดสูงเพื่อเพิ่มการมองเห็น หากมีคูปองให้ใส่เพื่อให้ลูกค้าใช้งานตอนชำระเงิน",
-      viewDeals: "ดูหน้าดีลที่นี่:",
       tabs: {
         all: "ทั้งหมด",
         active: "เปิดใช้งาน",
