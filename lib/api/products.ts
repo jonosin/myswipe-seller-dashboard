@@ -165,7 +165,7 @@ export async function listProducts(params: ListProductsParams = {}): Promise<Lis
 }
 
 export async function getProduct(id: string): Promise<Product> {
-  const dto = await apiFetch(`/v1/products/${id}`);
+  const dto = await apiFetch(`/v1/seller/products/${id}`);
   // Backend already returns public URLs for images/videos in dto
   const images = (dto.images || []).map((m: any) => ({ id: m.id, url: m.url, position: m.position, alt: m.alt_text }));
   const dtoVideos: any[] = Array.isArray(dto.videos) ? dto.videos : [];
