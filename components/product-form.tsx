@@ -1330,14 +1330,6 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
             {/* Actions (sticky) */}
             <div className="sticky bottom-0 bg-neutral-50">
               <div className="border-t border-neutral-200 pt-2 flex justify-end gap-2">
-                {isEdit && (
-                  <button type="button" onClick={async () => {
-                    if (!initial) return;
-                    await apiSubmitForReview(initial.id);
-                    setPendingReview(true);
-                    toast.success("Submitted for review");
-                  }} className="rounded-md border border-neutral-300 px-3 py-2 text-sm">Submit for review</button>
-                )}
                 <button type="button" onClick={() => onOpenChange(false)} className="rounded-md border border-neutral-300 px-3 py-2">Cancel</button>
                 <button type="submit" disabled={isSubmitting} className="rounded-md bg-black text-white px-3 py-2 disabled:opacity-50">
                   {isEdit ? (isSubmitting ? "Saving..." : "Save changes") : (isSubmitting ? "Adding..." : "Add Product")}

@@ -154,7 +154,7 @@ export default function ProductsPage() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl">{t("products.title")}</h1>
         <div className="flex items-center gap-2">
-          {selected.size > 0 && (
+          {selected.size > 0 && !openForm && (
             <>
               <button onClick={async () => {
                 const ids = Array.from(selected);
