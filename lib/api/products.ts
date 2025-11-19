@@ -171,6 +171,12 @@ export async function getProduct(id: string): Promise<Product> {
   const dtoVideos: any[] = Array.isArray(dto.videos) ? dto.videos : [];
   const videos = dtoVideos.map((v: any) => ({ id: v.id, url: v.url, position: v.position, alt: undefined, type: 'video' as const, thumbnailUrl: v.thumbnail || undefined }));
   const variants = (dto.variants || []).map((v: any) => ({ id: v.id, size: v.size || undefined, color: v.color || undefined, sku: v.sku || undefined, price_override_minor: v.price_minor ?? undefined, active: !!v.active, title: v.title || undefined }));
+  const storedDealPercent = dto.deal_percent ?? undefined;
+  const pricingDealPercent = dto.pricing?.discount_percent ?? null;
+  const dealPercent = storedDealPercent ?? (pricingDealPercent !== null ? pricingDealPercent : undefined);
+  const storedDealPrice = dto.deal_price_minor ?? undefined;
+  const pricingDealPrice = dto.pricing?.display_price_minor ?? undefined;
+  const dealPriceMinor = storedDealPrice ?? pricingDealPrice;
   const out: Product = {
     id: dto.id,
     title: dto.title,
@@ -182,9 +188,9 @@ export async function getProduct(id: string): Promise<Product> {
     sku: undefined,
     weight: undefined,
     active: !!dto.active,
-    deal_active: !!dto.pricing?.is_deal || !!dto.deal_active,
-    deal_percent: dto.pricing?.discount_percent ?? dto.deal_percent ?? undefined,
-    deal_price_minor: dto.pricing?.display_price_minor ?? dto.deal_price_minor ?? undefined,
+    deal_active: !!dto.deal_active,
+    deal_percent: dealPercent,
+    deal_price_minor: dealPriceMinor,
     images,
     videos,
     variants,
@@ -246,14 +252,28 @@ async function uploadProductMedia(pid: string, images: Media[] = [], videos: Med
   };
 
   for (const m of images) {
-    const { blob, type, ext } = await toBlob(m.url, (m as any).file as any);
+    // Only upload newly added images. Existing images from the backend use public URLs
+    // and have no local File/data URL attached, so we skip those to avoid duplication.
+    const url = m.url as string;
+    const hasFile = (m as any).file instanceof Blob || (m as any).file instanceof File;
+    if (!hasFile && typeof url === 'string' && !url.startsWith('data:')) {
+      continue;
+    }
+    const { blob, type, ext } = await toBlob(url, (m as any).file as any);
     const signed = await apiFetch(`/v1/media/image-signed-url`, { method: 'POST', json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
     await uploadWithFallback('product-images', signed, blob, type);
     await apiFetch(`/v1/products/${pid}/images`, { method: 'POST', json: { path: signed.path, alt_text: m.alt, position: (m as any).position } });
   }
 
   for (const v of videos) {
-    const { blob, type, ext } = await toBlob(v.url, (v as any).file as any);
+    // Only upload newly added videos (those with a local File or data URL). Existing
+    // videos from the backend have only a public URL and no file attached.
+    const url = v.url as string;
+    const hasFile = (v as any).file instanceof Blob || (v as any).file instanceof File;
+    if (!hasFile && typeof url === 'string' && !url.startsWith('data:')) {
+      continue;
+    }
+    const { blob, type, ext } = await toBlob(url, (v as any).file as any);
     const signed = await apiFetch(`/v1/media/video-signed-url`, { method: 'POST', json: { fileName: `upload.${ext}`, contentType: type, productId: pid } });
     await uploadWithFallback('product-videos', signed, blob, type);
     let thumbPath: string | undefined;

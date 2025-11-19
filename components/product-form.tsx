@@ -652,6 +652,7 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
 
     try {
       if (isEdit && initial) {
+        // Core patch fields
         const patch: ProductUpdate = {
           title: payload.title,
           description: payload.description,
@@ -660,13 +661,22 @@ export default function ProductForm({ open, onOpenChange, initial, onSaved }: Pr
           category: payload.category,
           brand: payload.brand,
           weight: payload.weight,
-          deal_active: payload.deal_active,
-          deal_percent: payload.deal_percent,
-          deal_price_minor: payload.deal_price_minor,
           images: payload.images,
           variants: payload.variants,
           videos: payload.videos,
         } as ProductUpdate;
+
+        // Only include deal fields when seller actually changed listing mode or discount
+        const initialMode = initial.mode ?? "discover";
+        const initialDiscount = initial.mode === "deal" ? (initial.discountPercent ?? undefined) : undefined;
+        const modeChanged = values.mode !== initialMode;
+        const discountChanged = values.mode === "deal" && typeof values.discountPercent === "number" && values.discountPercent !== initialDiscount;
+        if (modeChanged || discountChanged) {
+          (patch as any).deal_active = payload.deal_active;
+          (patch as any).deal_percent = payload.deal_percent;
+          (patch as any).deal_price_minor = payload.deal_price_minor;
+        }
+
         await apiUpdateProduct(initial.id, { ...(patch as any), external_url: values.external_url, coupon_code: values.coupon_code || null, is_swipe_hour: !!values.is_swipe_hour } as any);
         toast.success("Product updated");
         onSaved?.(initial as any);
